@@ -63,6 +63,11 @@ void scrub(String& value) {
   value = "";
 }
 
+void secureZero(void* buffer, size_t length) {
+  volatile uint8_t* p = static_cast<volatile uint8_t*>(buffer);
+  for (size_t i = 0; i < length; ++i) p[i] = 0;
+}
+
 String sanitizeGoogleMessage(String value) {
   constexpr size_t kMaximumDiagnosticLength = 240;
   if (value.length() > kMaximumDiagnosticLength) {
@@ -234,18 +239,18 @@ bool buildServiceAccountJwt(const google_credentials::Credentials& credentials,
   mbedtls_pk_free(&privateKey);
   mbedtls_ctr_drbg_free(&random);
   mbedtls_entropy_free(&entropy);
-  memset(digest, 0, sizeof(digest));
+  secureZero(digest, sizeof(digest));
 
   if (result != 0 || signatureLength == 0) {
     LOG.printf("[google] private-key/JWT signing failed with code %d\n",
                result);
-    memset(signature, 0, sizeof(signature));
+    secureZero(signature, sizeof(signature));
     scrub(signingInput);
     failureReason = "The uploaded Google private key could not sign a JWT";
     return false;
   }
   const String encodedSignature = base64Url(signature, signatureLength);
-  memset(signature, 0, sizeof(signature));
+  secureZero(signature, sizeof(signature));
   if (encodedSignature.isEmpty()) {
     scrub(signingInput);
     failureReason = "Could not encode the Google JWT signature";
