@@ -53,8 +53,26 @@ jobs:
       - name: Install PlatformIO
         run: python -m pip install --upgrade platformio intelhex
 
-      - name: Provision local secrets.h from example
-        run: cp include/secrets.h.example include/secrets.h
+      - name: Generate include/secrets.h from repository secrets
+        env:
+          WIFI_SSID: ${{ secrets.WIFI_SSID }}
+          WIFI_PASSWORD: ${{ secrets.WIFI_PASSWORD }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -n "${WIFI_SSID}" ] && [ -n "${WIFI_PASSWORD}" ] && [ -n "${SUPABASE_ANON_KEY}" ]; then
+            echo "Generating include/secrets.h from repository secrets."
+            cat > include/secrets.h <<EOF
+          #pragma once
+
+          #define WIFI_SSID "${WIFI_SSID}"
+          #define WIFI_PASSWORD "${WIFI_PASSWORD}"
+
+          #define SUPABASE_ANON_KEY "${SUPABASE_ANON_KEY}"
+          EOF
+          else
+            echo "Falling back to include/secrets.h.example (no/missing repository secrets)."
+            cp include/secrets.h.example include/secrets.h
+          fi
 
       - name: Build
         run: pio run -e "${{ matrix.environment }}"
