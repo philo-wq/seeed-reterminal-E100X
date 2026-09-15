@@ -94,7 +94,7 @@ class SmoothFont {
 };
 
 // Draw `text` with a loaded smooth font using an alpha threshold so the
-// glyph renders as solid ink on the one-bit panel. Anchored at the
+// glyph renders as solid black on the one-bit panel. Anchored at the
 // top-left baseline of the glyph box (caller positions via textWidth).
 // Returns false if the font isn't actually loaded (caller should fall
 // back to drawString with a GFX font).
@@ -317,49 +317,54 @@ inline void renderUke(EPaper& epaper, SmoothFont& font,
   y += LINE_GAP * 2;
 
   // History bar chart (weekly km).
+  font.load(FontSize::Tiny);
   drawText(epaper, font, "Historikk", MARGIN, y, FontSize::Tiny);
-  y += textHeight(epaper, font) + LINE_GAP * 2;
+  y += textHeight(epaper, font) + LINE_GAP;
   if (!data.historikk.empty()) {
-    float maxKm = 0.001f;
+    float maxKm = 0.0f;
     for (const dashboard::HistoryEntry& h : data.historikk) {
       if (h.km > maxKm) maxKm = h.km;
     }
+    if (maxKm <= 0.0f) maxKm = 1.0f;
     const int chartTop = y;
     const int chartBottom = config::PANEL_HEIGHT - MARGIN - 20;
     const int chartH = chartBottom - chartTop;
-    const int n = static_cast<int>(data.historikk.size());
-    const int slotW = (config::PANEL_WIDTH - 2 * MARGIN) / n;
-    const int barGap = 4;
-    for (int i = 0; i < n; ++i) {
-      const dashboard::HistoryEntry& h = data.historikk[i];
-      const int barH = static_cast<int>(chartH * (h.km / maxKm));
-      const int bx = MARGIN + i * slotW + barGap;
-      const int bw = slotW - 2 * barGap;
-      epaper.fillRect(bx, chartBottom - barH, bw, barH, h.naa ? INK : INK_SECONDARY);
-      drawText(epaper, font, h.uke, bx, chartBottom + 2, FontSize::Tiny);
+    if (chartH > 20) {
+      const int n = static_cast<int>(data.historikk.size());
+      const int slotW = (config::PANEL_WIDTH - 2 * MARGIN) / n;
+      const int barGap = 4;
+      for (int i = 0; i < n; ++i) {
+        const dashboard::HistoryEntry& h = data.historikk[i];
+        const int barH = static_cast<int>(chartH * (h.km / maxKm));
+        const int bx = MARGIN + i * slotW + barGap;
+        const int bw = slotW - 2 * barGap;
+        epaper.fillRect(bx, chartBottom - barH, bw, barH, h.naa ? INK : INK_SECONDARY);
+        drawText(epaper, font, h.uke, bx, chartBottom + 2, FontSize::Tiny);
+      }
     }
   }
   font.unload();
 }
 
-// Total km i år + ukeshistorikk som søyler.
 // ── Screen 2: År ────────────────────────────────────────────────────
+// Total km i år + ukeshistorikk som søyler.
 template <typename EPaper>
 inline void renderAar(EPaper& epaper, SmoothFont& font,
                       const dashboard::DashboardData& data) {
   clearPanel(epaper);
-  drawHeader(epaper, font, "År", data.oppdatert);
+  drawHeader(epaper, font, String("År: ") + "2026", data.oppdatert);
   int y = MARGIN + textHeight(epaper, font) + LINE_GAP * 3;
 
-  // Big year total km.
+  // Big year total.
   font.load(FontSize::Huge);
-  const String km = kmString(data.aar.total_km);
-  const int kmW = textWidth(epaper, font, km);
-  drawText(epaper, font, km,
-           (config::PANEL_WIDTH - kmW) / 2, y, FontSize::Huge);
-  font.load(FontSize::Medium);
-  drawText(epaper, font, "km i år",
-           (config::PANEL_WIDTH - kmW) / 2 + kmW + 8, y + 18, FontSize::Medium);
+  {
+    const String km = kmString(data.aar.total_km);
+    drawText(epaper, font, km, MARGIN, y, FontSize::Huge);
+    const int kmW = textWidth(epaper, font, km);
+    font.load(FontSize::Medium);
+    drawText(epaper, font, "km i år", MARGIN + kmW + 8, y + 18,
+             FontSize::Medium);
+  }
   y += 60 + LINE_GAP * 2;
   drawHairline(epaper, y);
   y += LINE_GAP * 2;
@@ -368,26 +373,29 @@ inline void renderAar(EPaper& epaper, SmoothFont& font,
   // is more vertical space below the header.
   font.load(FontSize::Small);
   drawText(epaper, font, "Ukeshistorikk", MARGIN, y, FontSize::Small);
-  y += textHeight(epaper, font) + LINE_GAP * 2;
+  y += textHeight(epaper, font) + LINE_GAP;
   if (!data.historikk.empty()) {
-    float maxKm = 0.001f;
+    float maxKm = 0.0f;
     for (const dashboard::HistoryEntry& h : data.historikk) {
       if (h.km > maxKm) maxKm = h.km;
     }
+    if (maxKm <= 0.0f) maxKm = 1.0f;
     const int chartTop = y;
     const int chartBottom = config::PANEL_HEIGHT - MARGIN - 20;
     const int chartH = chartBottom - chartTop;
-    const int n = static_cast<int>(data.historikk.size());
-    const int slotW = (config::PANEL_WIDTH - 2 * MARGIN) / n;
-    const int barGap = 4;
-    for (int i = 0; i < n; ++i) {
-      const dashboard::HistoryEntry& h = data.historikk[i];
-      const int barH = static_cast<int>(chartH * (h.km / maxKm));
-      const int bx = MARGIN + i * slotW + barGap;
-      const int bw = slotW - 2 * barGap;
-      epaper.fillRect(bx, chartBottom - barH, bw, barH, h.naa ? INK : INK_SECONDARY);
-      font.load(FontSize::Tiny);
-      drawText(epaper, font, h.uke, bx, chartBottom + 2, FontSize::Tiny);
+    if (chartH > 20) {
+      const int n = static_cast<int>(data.historikk.size());
+      const int slotW = (config::PANEL_WIDTH - 2 * MARGIN) / n;
+      const int barGap = 4;
+      for (int i = 0; i < n; ++i) {
+        const dashboard::HistoryEntry& h = data.historikk[i];
+        const int barH = static_cast<int>(chartH * (h.km / maxKm));
+        const int bx = MARGIN + i * slotW + barGap;
+        const int bw = slotW - 2 * barGap;
+        epaper.fillRect(bx, chartBottom - barH, bw, barH, h.naa ? INK : INK_SECONDARY);
+        font.load(FontSize::Tiny);
+        drawText(epaper, font, h.uke, bx, chartBottom + 2, FontSize::Tiny);
+      }
     }
   }
   font.unload();
@@ -455,61 +463,64 @@ inline void renderJournal(EPaper& epaper, SmoothFont& font,
   int y = MARGIN + textHeight(epaper, font) + LINE_GAP * 3;
 
   font.load(FontSize::Small);
+  if (data.journal.empty()) {
+    const String msg = "Ingen notater";
+    const int w = textWidth(epaper, font, msg);
+    drawText(epaper, font, msg,
+             (config::PANEL_WIDTH - w) / 2, y + 40, FontSize::Small);
+    font.unload();
+    return;
+  }
+
   const size_t toShow =
       data.journal.size() > 5 ? 5 : data.journal.size();
   for (size_t i = 0; i < toShow; ++i) {
-    const dashboard::JournalEntry& e = data.journal[i];
-    // Date + type on the left.
-    const String left = e.dato + "  " + e.type;
-    drawText(epaper, font, left, MARGIN, y, FontSize::Small);
+    const dashboard::JournalEntry& j = data.journal[i];
+
+    // Date + type header.
+    const String head = j.dato + "  " + j.type;
+    drawText(epaper, font, head, MARGIN, y, FontSize::Small);
     y += textHeight(epaper, font) + LINE_GAP;
-    // Note with word-wrap.
-    String remaining = e.note;
-    while (remaining.length() > 0) {
-      const int maxW = config::PANEL_WIDTH - 2 * MARGIN;
-      String line = remaining;
-      if (textWidth(epaper, font, line) > maxW) {
-        // Trim back to last space that fits.
-        int cut = line.length();
-        while (cut > 0 && textWidth(epaper, font, line.substring(0, cut)) > maxW) {
-          --cut;
+
+    // Note (may wrap — simple word-wrap to panel width).
+    const int maxW = config::PANEL_WIDTH - 2 * MARGIN;
+    String line;
+    line.reserve(j.note.length());
+    for (int ci = 0; ci < static_cast<int>(j.note.length()); ++ci) {
+      line += j.note[ci];
+      if (j.note[ci] == ' ' || ci == static_cast<int>(j.note.length()) - 1) {
+        const int lw = textWidth(epaper, font, line);
+        if (lw > maxW) {
+          // Trim back to last space.
+          const int lastSpace = line.lastIndexOf(' ');
+          if (lastSpace > 0) {
+            const String toDraw = line.substring(0, lastSpace);
+            drawText(epaper, font, toDraw, MARGIN, y, FontSize::Small);
+            y += textHeight(epaper, font) + LINE_GAP;
+            line = line.substring(lastSpace + 1);
+          } else {
+            drawText(epaper, font, line, MARGIN, y, FontSize::Small);
+            y += textHeight(epaper, font) + LINE_GAP;
+            line = "";
+          }
         }
-        // Trim back to last space.
-        const int lastSpace = line.lastIndexOf(' ', cut);
-        if (lastSpace > 0) {
-          const String toDraw = line.substring(0, lastSpace);
-          drawText(epaper, font, toDraw, MARGIN, y, FontSize::Small);
-          line = line.substring(lastSpace + 1);
-        } else {
-          const String toDraw = line.substring(0, cut);
-          drawText(epaper, font, toDraw, MARGIN, y, FontSize::Small);
-          line = line.substring(cut);
-        }
-        remaining = line;
-      } else {
-        drawText(epaper, font, line, MARGIN, y, FontSize::Small);
-        remaining = "";
       }
+    }
+    if (line.length() > 0) {
+      drawText(epaper, font, line, MARGIN, y, FontSize::Small);
       y += textHeight(epaper, font) + LINE_GAP;
     }
+
     y += LINE_GAP;
     if (i + 1 < toShow) {
       drawHairline(epaper, y);
       y += LINE_GAP * 2;
     }
   }
-
-  if (data.journal.empty()) {
-    font.load(FontSize::Medium);
-    const String msg = "Ingen notater ennå";
-    const int w = textWidth(epaper, font, msg);
-    drawText(epaper, font, msg,
-             (config::PANEL_WIDTH - w) / 2, y + 40, FontSize::Medium);
-  }
   font.unload();
 }
 
-// Dispatch to the per-screen renderer.
+// Dispatch: render the requested screen.
 template <typename EPaper>
 inline void renderScreen(EPaper& epaper, SmoothFont& font,
                          Screen screen,
@@ -522,16 +533,22 @@ inline void renderScreen(EPaper& epaper, SmoothFont& font,
   }
 }
 
-// Status overlay when fetch/parse fails — keeps last-good data hidden.
+// Minimal status screen for WiFi/fetch/parse failures.
 template <typename EPaper>
 inline void renderStatus(EPaper& epaper, SmoothFont& font,
-                        const String& status) {
+                         const String& title, const String& detail) {
   clearPanel(epaper);
-  font.load(FontSize::Medium);
-  const int w = textWidth(epaper, font, status);
-  drawText(epaper, font, status,
-           (config::PANEL_WIDTH - w) / 2,
-           config::PANEL_HEIGHT / 2 - 20, FontSize::Medium);
+  int y = MARGIN + 40;
+  font.load(FontSize::Large);
+  const int tw = textWidth(epaper, font, title);
+  drawText(epaper, font, title, (config::PANEL_WIDTH - tw) / 2, y,
+           FontSize::Large);
+  y += textHeight(epaper, font) + LINE_GAP * 2;
+  font.load(FontSize::Small);
+  int dw = textWidth(epaper, font, detail);
+  if (dw > config::PANEL_WIDTH - 2 * MARGIN) dw = config::PANEL_WIDTH - 2 * MARGIN;
+  drawText(epaper, font, detail, (config::PANEL_WIDTH - dw) / 2, y,
+           FontSize::Small);
   font.unload();
 }
 
