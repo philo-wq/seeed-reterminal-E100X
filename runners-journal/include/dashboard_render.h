@@ -243,40 +243,54 @@ inline String elevString(int m) {
   return String(m) + "m";
 }
 
-// Right-align a string at x = PANEL_WIDTH - MARGIN.
-inline void drawRight(TFT_eSPI& epaper, SmoothFont& font, const String& text,
-                      int top, FontSize size) {
-  const int w = textWidthFor(epaper, font, text, size);
-  drawText(epaper, font, text, config::PANEL_WIDTH - MARGIN - w, top, size);
+// Right-aligned helper: draws `text` flush against the right margin.
+inline void drawRight(TFT_eSPI& epaper, SmoothFont& font,
+                      const String& text, int y, FontSize size) {
+  font.load(size);
+  const int w = textWidth(epaper, font, text);
+  drawText(epaper, font, text, config::PANEL_WIDTH - MARGIN - w, y, size);
 }
 
 // ── Screen 1: Uke ───────────────────────────────────────────────────
-// Weekly summary with goal %, type breakdown, elevation, total time,
-// vs previous week, and an 8-week history bar chart.
+// km, mål%, type-fordeling, høydemeter, total tid, mot forrige uke.
 template <typename EPaper>
 inline void renderUke(EPaper& epaper, SmoothFont& font,
                       const dashboard::DashboardData& data) {
   clearPanel(epaper);
-  drawHeader(epaper, font, "Uke", data.oppdatert);
+  drawHeader(epaper, font, data.uke.merkelapp, data.oppdatert);
   int y = MARGIN + textHeight(epaper, font) + LINE_GAP * 3;
 
-  // Big total km + goal %.
+  // Weekly progress: total km + goal percentage.
   font.load(FontSize::Huge);
-  const String km = kmString(data.uke.total_km) + "km";
-  drawText(epaper, font, km, MARGIN, y, FontSize::Huge);
-
-  const String pct = pctString(data.uke.maal_pct);
-  const int pw = textWidthFor(epaper, font, pct, FontSize::Huge);
-  drawText(epaper, font, pct,
-           config::PANEL_WIDTH - MARGIN - pw, y, FontSize::Huge);
-  y += textHeight(epaper, font) + LINE_GAP * 2;
+  {
+    const String km = kmString(data.uke.total_km);
+    drawText(epaper, font, km, MARGIN, y, FontSize::Huge);
+    const int kmW = textWidth(epaper, font, km);
+    font.load(FontSize::Medium);
+    drawText(epaper, font, "km", MARGIN + kmW + 8, y + 18, FontSize::Medium);
+  }
+  font.load(FontSize::Large);
+  {
+    const String pct = pctString(data.uke.maal_pct);
+    const int w = textWidth(epaper, font, pct);
+    drawText(epaper, font, pct,
+             config::PANEL_WIDTH - MARGIN - w, y, FontSize::Large);
+    const String goal = String("av ") + data.maal_km + " km";
+    font.load(FontSize::Small);
+    const int gw = textWidth(epaper, font, goal);
+    drawText(epaper, font, goal,
+             config::PANEL_WIDTH - MARGIN - gw, y + 34, FontSize::Small);
+  }
+  y += 60 + LINE_GAP * 2;
+  drawHairline(epaper, y);
+  y += LINE_GAP * 2;
 
   // Stats row: total tid + elevation + mot forrige.
   font.load(FontSize::Small);
-  drawText(epaper, font, "Total tid", MARGIN, y, FontSize::Small);
+  drawText(epaper, font, "Tid", MARGIN, y, FontSize::Small);
   drawRight(epaper, font, data.uke.total_tid, y, FontSize::Small);
   y += textHeight(epaper, font) + LINE_GAP;
-  drawText(epaper, font, "Høydemeter", MARGIN, y, FontSize::Small);
+  drawText(epaper, font, "Høyde", MARGIN, y, FontSize::Small);
   drawRight(epaper, font, elevString(data.uke.elevation_m), y, FontSize::Small);
   y += textHeight(epaper, font) + LINE_GAP;
   drawText(epaper, font, "vs forrige", MARGIN, y, FontSize::Small);
@@ -286,11 +300,16 @@ inline void renderUke(EPaper& epaper, SmoothFont& font,
   y += LINE_GAP * 2;
 
   // Type breakdown.
+  font.load(FontSize::Small);
+  drawText(epaper, font, "Typer", MARGIN, y, FontSize::Small);
+  y += textHeight(epaper, font) + LINE_GAP;
   for (const dashboard::TypeEntry& t : data.typer) {
-    drawText(epaper, font, t.type, MARGIN, y, FontSize::Small);
-    drawRight(epaper, font,
-              String(t.antall) + "   " + kmString(t.km) + "km",
-              y, FontSize::Small);
+    const String left = String(t.type) + " (" + t.antall + ")";
+    const String right = kmString(t.km) + "km";
+    drawText(epaper, font, left, MARGIN, y, FontSize::Small);
+    const int rw = textWidth(epaper, font, right);
+    drawText(epaper, font, right, config::PANEL_WIDTH - MARGIN - rw, y,
+             FontSize::Small);
     y += textHeight(epaper, font) + LINE_GAP;
   }
   y += LINE_GAP;
@@ -298,7 +317,7 @@ inline void renderUke(EPaper& epaper, SmoothFont& font,
   y += LINE_GAP * 2;
 
   // History bar chart (weekly km).
-  drawText(epaper, font, "Ukeshistorikk", MARGIN, y, FontSize::Small);
+  drawText(epaper, font, "Historikk", MARGIN, y, FontSize::Tiny);
   y += textHeight(epaper, font) + LINE_GAP * 2;
   if (!data.historikk.empty()) {
     float maxKm = 0.001f;
@@ -334,18 +353,20 @@ inline void renderAar(EPaper& epaper, SmoothFont& font,
 
   // Big year total km.
   font.load(FontSize::Huge);
-  const String km = kmString(data.aar.total_km) + "km";
-  const int kw = textWidthFor(epaper, font, km, FontSize::Huge);
+  const String km = kmString(data.aar.total_km);
+  const int kmW = textWidth(epaper, font, km);
   drawText(epaper, font, km,
-           (config::PANEL_WIDTH - kw) / 2, y, FontSize::Huge);
-  y += textHeight(epaper, font) + LINE_GAP * 2;
+           (config::PANEL_WIDTH - kmW) / 2, y, FontSize::Huge);
+  font.load(FontSize::Medium);
+  drawText(epaper, font, "km i år",
+           (config::PANEL_WIDTH - kmW) / 2 + kmW + 8, y + 18, FontSize::Medium);
+  y += 60 + LINE_GAP * 2;
+  drawHairline(epaper, y);
+  y += LINE_GAP * 2;
 
-  font.load(FontSize::Small);
-  // Smaller label.
-  drawText(epaper, font, "Total km i år", MARGIN, y, FontSize::Small);
-  y += textHeight(epaper, font) + LINE_GAP * 2;
   // History bar chart (weekly km) — taller on this screen since there
   // is more vertical space below the header.
+  font.load(FontSize::Small);
   drawText(epaper, font, "Ukeshistorikk", MARGIN, y, FontSize::Small);
   y += textHeight(epaper, font) + LINE_GAP * 2;
   if (!data.historikk.empty()) {
