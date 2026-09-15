@@ -94,12 +94,12 @@ class SmoothFont {
 };
 
 // Draw `text` with a loaded smooth font using an alpha threshold so the
-// glyph renders as solid black on the one-bit panel. Anchored at the
+// glyph renders as solid ink on the one-bit panel. Anchored at the
 // top-left baseline of the glyph box (caller positions via textWidth).
 // Returns false if the font isn't actually loaded (caller should fall
 // back to drawString with a GFX font).
-inline bool drawSmoothMonochrome(TFT_eSPI& epaper, const String& text,
-                                 int left, int top) {
+inline bool drawSmoothMonochromeColored(TFT_eSPI& epaper, const String& text,
+                                        int left, int top, uint16_t color) {
   if (!epaper.fontLoaded || !epaper.fs_font || !epaper.fontFile) {
     return false;
   }
@@ -132,13 +132,18 @@ inline bool drawSmoothMonochrome(TFT_eSPI& epaper, const String& text,
       if (epaper.fontFile.read(row, width) != width) return false;
       for (uint8_t x = 0; x < width; ++x) {
         if (row[x] >= kSolidAlphaThreshold) {
-          epaper.drawPixel(glyphLeft + x, glyphTop + y, INK);
+          epaper.drawPixel(glyphLeft + x, glyphTop + y, color);
         }
       }
     }
     cursorX += epaper.gxAdvance[glyph];
   }
   return true;
+}
+
+inline bool drawSmoothMonochrome(TFT_eSPI& epaper, const String& text,
+                                 int left, int top) {
+  return drawSmoothMonochromeColored(epaper, text, left, top, INK);
 }
 
 // Measure string width with the currently active font (smooth or GFX).
@@ -170,6 +175,26 @@ inline void drawText(TFT_eSPI& epaper, SmoothFont& font, const String& text,
   // No smooth font for this size: ensure a GFX fallback is active.
   font.selectGfxFallback(size);
   epaper.drawString(text, left, top);
+}
+
+// Same as drawText but in a caller-chosen ink color (e.g. INK_FAINT for
+// the "Alternativ økt" label of distance-less activities).
+inline void drawTextColored(TFT_eSPI& epaper, SmoothFont& font,
+                            const String& text, int left, int top,
+                            FontSize size, uint16_t color) {
+  epaper.setTextColor(color);
+  if (font.loaded() && font.px() == fontSpec(size).px) {
+    if (drawSmoothMonochromeColored(epaper, text, left, top, color)) return;
+  }
+  font.selectGfxFallback(size);
+  epaper.drawString(text, left, top);
+}
+
+// Whether a run entry represents a distance-less activity (strength,
+// stretch, etc.) that should render as "Alternativ økt" rather than
+// a km/pace/elevation detail row.
+inline bool isAlternativOkt(const dashboard::RunEntry& r) {
+  return r.km <= 0.0f && r.pace == "--:--";
 }
 
 inline int textHeight(TFT_eSPI& epaper, SmoothFont& font) {
@@ -218,54 +243,40 @@ inline String elevString(int m) {
   return String(m) + "m";
 }
 
-// Right-aligned helper: draws `text` flush against the right margin.
-inline void drawRight(TFT_eSPI& epaper, SmoothFont& font,
-                      const String& text, int y, FontSize size) {
-  font.load(size);
-  const int w = textWidth(epaper, font, text);
-  drawText(epaper, font, text, config::PANEL_WIDTH - MARGIN - w, y, size);
+// Right-align a string at x = PANEL_WIDTH - MARGIN.
+inline void drawRight(TFT_eSPI& epaper, SmoothFont& font, const String& text,
+                      int top, FontSize size) {
+  const int w = textWidthFor(epaper, font, text, size);
+  drawText(epaper, font, text, config::PANEL_WIDTH - MARGIN - w, top, size);
 }
 
-// ── Screen 1: Uke ─────────────────────────────────────────────────────
-// km, mål%, type-fordeling, høydemeter, total tid, mot forrige uke.
+// ── Screen 1: Uke ───────────────────────────────────────────────────
+// Weekly summary with goal %, type breakdown, elevation, total time,
+// vs previous week, and an 8-week history bar chart.
 template <typename EPaper>
 inline void renderUke(EPaper& epaper, SmoothFont& font,
                       const dashboard::DashboardData& data) {
   clearPanel(epaper);
-  drawHeader(epaper, font, data.uke.merkelapp, data.oppdatert);
+  drawHeader(epaper, font, "Uke", data.oppdatert);
   int y = MARGIN + textHeight(epaper, font) + LINE_GAP * 3;
 
-  // Weekly progress: total km + goal percentage.
+  // Big total km + goal %.
   font.load(FontSize::Huge);
-  {
-    const String km = kmString(data.uke.total_km);
-    drawText(epaper, font, km, MARGIN, y, FontSize::Huge);
-    const int kmW = textWidth(epaper, font, km);
-    font.load(FontSize::Medium);
-    drawText(epaper, font, "km", MARGIN + kmW + 8, y + 18, FontSize::Medium);
-  }
-  font.load(FontSize::Large);
-  {
-    const String pct = pctString(data.uke.maal_pct);
-    const int w = textWidth(epaper, font, pct);
-    drawText(epaper, font, pct,
-             config::PANEL_WIDTH - MARGIN - w, y, FontSize::Large);
-    const String goal = String("av ") + data.maal_km + " km";
-    font.load(FontSize::Small);
-    const int gw = textWidth(epaper, font, goal);
-    drawText(epaper, font, goal,
-             config::PANEL_WIDTH - MARGIN - gw, y + 34, FontSize::Small);
-  }
-  y += 60 + LINE_GAP * 2;
-  drawHairline(epaper, y);
-  y += LINE_GAP * 2;
+  const String km = kmString(data.uke.total_km) + "km";
+  drawText(epaper, font, km, MARGIN, y, FontSize::Huge);
+
+  const String pct = pctString(data.uke.maal_pct);
+  const int pw = textWidthFor(epaper, font, pct, FontSize::Huge);
+  drawText(epaper, font, pct,
+           config::PANEL_WIDTH - MARGIN - pw, y, FontSize::Huge);
+  y += textHeight(epaper, font) + LINE_GAP * 2;
 
   // Stats row: total tid + elevation + mot forrige.
   font.load(FontSize::Small);
-  drawText(epaper, font, "Tid", MARGIN, y, FontSize::Small);
+  drawText(epaper, font, "Total tid", MARGIN, y, FontSize::Small);
   drawRight(epaper, font, data.uke.total_tid, y, FontSize::Small);
   y += textHeight(epaper, font) + LINE_GAP;
-  drawText(epaper, font, "Høyde", MARGIN, y, FontSize::Small);
+  drawText(epaper, font, "Høydemeter", MARGIN, y, FontSize::Small);
   drawRight(epaper, font, elevString(data.uke.elevation_m), y, FontSize::Small);
   y += textHeight(epaper, font) + LINE_GAP;
   drawText(epaper, font, "vs forrige", MARGIN, y, FontSize::Small);
@@ -275,16 +286,11 @@ inline void renderUke(EPaper& epaper, SmoothFont& font,
   y += LINE_GAP * 2;
 
   // Type breakdown.
-  font.load(FontSize::Small);
-  drawText(epaper, font, "Typer", MARGIN, y, FontSize::Small);
-  y += textHeight(epaper, font) + LINE_GAP;
   for (const dashboard::TypeEntry& t : data.typer) {
-    const String left = String(t.type) + " (" + t.antall + ")";
-    const String right = kmString(t.km) + "km";
-    drawText(epaper, font, left, MARGIN, y, FontSize::Small);
-    const int rw = textWidth(epaper, font, right);
-    drawText(epaper, font, right, config::PANEL_WIDTH - MARGIN - rw, y,
-             FontSize::Small);
+    drawText(epaper, font, t.type, MARGIN, y, FontSize::Small);
+    drawRight(epaper, font,
+              String(t.antall) + "   " + kmString(t.km) + "km",
+              y, FontSize::Small);
     y += textHeight(epaper, font) + LINE_GAP;
   }
   y += LINE_GAP;
@@ -292,91 +298,81 @@ inline void renderUke(EPaper& epaper, SmoothFont& font,
   y += LINE_GAP * 2;
 
   // History bar chart (weekly km).
-  font.load(FontSize::Tiny);
-  drawText(epaper, font, "Historikk", MARGIN, y, FontSize::Tiny);
-  y += textHeight(epaper, font) + LINE_GAP;
+  drawText(epaper, font, "Ukeshistorikk", MARGIN, y, FontSize::Small);
+  y += textHeight(epaper, font) + LINE_GAP * 2;
   if (!data.historikk.empty()) {
-    float maxKm = 0.0f;
+    float maxKm = 0.001f;
     for (const dashboard::HistoryEntry& h : data.historikk) {
       if (h.km > maxKm) maxKm = h.km;
     }
-    if (maxKm <= 0.0f) maxKm = 1.0f;
     const int chartTop = y;
     const int chartBottom = config::PANEL_HEIGHT - MARGIN - 20;
     const int chartH = chartBottom - chartTop;
-    if (chartH > 20) {
-      const int n = static_cast<int>(data.historikk.size());
-      const int slotW = (config::PANEL_WIDTH - 2 * MARGIN) / n;
-      const int barGap = 4;
-      for (int i = 0; i < n; ++i) {
-        const dashboard::HistoryEntry& h = data.historikk[i];
-        const int barH = static_cast<int>(chartH * (h.km / maxKm));
-        const int bx = MARGIN + i * slotW + barGap;
-        const int bw = slotW - 2 * barGap;
-        epaper.fillRect(bx, chartBottom - barH, bw, barH, h.naa ? INK : INK_SECONDARY);
-        drawText(epaper, font, h.uke, bx, chartBottom + 2, FontSize::Tiny);
-      }
+    const int n = static_cast<int>(data.historikk.size());
+    const int slotW = (config::PANEL_WIDTH - 2 * MARGIN) / n;
+    const int barGap = 4;
+    for (int i = 0; i < n; ++i) {
+      const dashboard::HistoryEntry& h = data.historikk[i];
+      const int barH = static_cast<int>(chartH * (h.km / maxKm));
+      const int bx = MARGIN + i * slotW + barGap;
+      const int bw = slotW - 2 * barGap;
+      epaper.fillRect(bx, chartBottom - barH, bw, barH, h.naa ? INK : INK_SECONDARY);
+      drawText(epaper, font, h.uke, bx, chartBottom + 2, FontSize::Tiny);
     }
   }
   font.unload();
 }
 
-// ── Screen 2: År ───────────────────────────────────────────────────────
 // Total km i år + ukeshistorikk som søyler.
+// ── Screen 2: År ────────────────────────────────────────────────────
 template <typename EPaper>
 inline void renderAar(EPaper& epaper, SmoothFont& font,
                       const dashboard::DashboardData& data) {
   clearPanel(epaper);
-  drawHeader(epaper, font, String("År: ") + "2026", data.oppdatert);
+  drawHeader(epaper, font, "År", data.oppdatert);
   int y = MARGIN + textHeight(epaper, font) + LINE_GAP * 3;
 
-  // Big year total.
+  // Big year total km.
   font.load(FontSize::Huge);
-  {
-    const String km = kmString(data.aar.total_km);
-    drawText(epaper, font, km, MARGIN, y, FontSize::Huge);
-    const int kmW = textWidth(epaper, font, km);
-    font.load(FontSize::Medium);
-    drawText(epaper, font, "km i år", MARGIN + kmW + 8, y + 18,
-             FontSize::Medium);
-  }
-  y += 60 + LINE_GAP * 2;
-  drawHairline(epaper, y);
-  y += LINE_GAP * 2;
+  const String km = kmString(data.aar.total_km) + "km";
+  const int kw = textWidthFor(epaper, font, km, FontSize::Huge);
+  drawText(epaper, font, km,
+           (config::PANEL_WIDTH - kw) / 2, y, FontSize::Huge);
+  y += textHeight(epaper, font) + LINE_GAP * 2;
 
+  font.load(FontSize::Small);
+  // Smaller label.
+  drawText(epaper, font, "Total km i år", MARGIN, y, FontSize::Small);
+  y += textHeight(epaper, font) + LINE_GAP * 2;
   // History bar chart (weekly km) — taller on this screen since there
   // is more vertical space below the header.
-  font.load(FontSize::Small);
   drawText(epaper, font, "Ukeshistorikk", MARGIN, y, FontSize::Small);
-  y += textHeight(epaper, font) + LINE_GAP;
+  y += textHeight(epaper, font) + LINE_GAP * 2;
   if (!data.historikk.empty()) {
-    float maxKm = 0.0f;
+    float maxKm = 0.001f;
     for (const dashboard::HistoryEntry& h : data.historikk) {
       if (h.km > maxKm) maxKm = h.km;
     }
-    if (maxKm <= 0.0f) maxKm = 1.0f;
     const int chartTop = y;
     const int chartBottom = config::PANEL_HEIGHT - MARGIN - 20;
     const int chartH = chartBottom - chartTop;
-    if (chartH > 20) {
-      const int n = static_cast<int>(data.historikk.size());
-      const int slotW = (config::PANEL_WIDTH - 2 * MARGIN) / n;
-      const int barGap = 4;
-      for (int i = 0; i < n; ++i) {
-        const dashboard::HistoryEntry& h = data.historikk[i];
-        const int barH = static_cast<int>(chartH * (h.km / maxKm));
-        const int bx = MARGIN + i * slotW + barGap;
-        const int bw = slotW - 2 * barGap;
-        epaper.fillRect(bx, chartBottom - barH, bw, barH, h.naa ? INK : INK_SECONDARY);
-        font.load(FontSize::Tiny);
-        drawText(epaper, font, h.uke, bx, chartBottom + 2, FontSize::Tiny);
-      }
+    const int n = static_cast<int>(data.historikk.size());
+    const int slotW = (config::PANEL_WIDTH - 2 * MARGIN) / n;
+    const int barGap = 4;
+    for (int i = 0; i < n; ++i) {
+      const dashboard::HistoryEntry& h = data.historikk[i];
+      const int barH = static_cast<int>(chartH * (h.km / maxKm));
+      const int bx = MARGIN + i * slotW + barGap;
+      const int bw = slotW - 2 * barGap;
+      epaper.fillRect(bx, chartBottom - barH, bw, barH, h.naa ? INK : INK_SECONDARY);
+      font.load(FontSize::Tiny);
+      drawText(epaper, font, h.uke, bx, chartBottom + 2, FontSize::Tiny);
     }
   }
   font.unload();
 }
 
-// ── Screen 3: Siste aktivitet ──────────────────────────────────────────
+// ── Screen 3: Siste aktivitet ──────────────────────────────────────
 // Detaljert visning av de siste løpene med høydemeter.
 template <typename EPaper>
 inline void renderSiste(EPaper& epaper, SmoothFont& font,
@@ -396,11 +392,20 @@ inline void renderSiste(EPaper& epaper, SmoothFont& font,
     drawText(epaper, font, left, MARGIN, y, FontSize::Small);
     y += textHeight(epaper, font) + LINE_GAP;
 
-    // Detail row: km + pace + elevation.
-    const String detail = kmString(r.km) + "km  " + r.pace + "  " +
-                          elevString(r.elevation_m);
-    drawText(epaper, font, detail, MARGIN, y, FontSize::Small);
-    y += textHeight(epaper, font) + LINE_GAP * 2;
+    if (isAlternativOkt(r)) {
+      // Distance-less activity (strength, stretch, etc.): no km/pace/
+      // elevation block — render a faint "Alternativ økt" label instead
+      // (per design PR #33).
+      drawTextColored(epaper, font, "Alternativ økt", MARGIN, y,
+                     FontSize::Small, INK_FAINT);
+      y += textHeight(epaper, font) + LINE_GAP * 2;
+    } else {
+      // Detail row: km + pace + elevation.
+      const String detail = kmString(r.km) + "km  " + r.pace + "  " +
+                            elevString(r.elevation_m);
+      drawText(epaper, font, detail, MARGIN, y, FontSize::Small);
+      y += textHeight(epaper, font) + LINE_GAP * 2;
+    }
 
     // Separator between runs (except after last).
     if (i + 1 < runsToShow) {
@@ -419,61 +424,51 @@ inline void renderSiste(EPaper& epaper, SmoothFont& font,
   font.unload();
 }
 
-// ── Screen 4: Journal ─────────────────────────────────────────────────
+// ── Screen 4: Journal ──────────────────────────────────────────────
 // Siste løp med notater.
 template <typename EPaper>
 inline void renderJournal(EPaper& epaper, SmoothFont& font,
-                          const dashboard::DashboardData& data) {
+                         const dashboard::DashboardData& data) {
   clearPanel(epaper);
   drawHeader(epaper, font, "Journal", data.oppdatert);
   int y = MARGIN + textHeight(epaper, font) + LINE_GAP * 3;
 
   font.load(FontSize::Small);
-  if (data.journal.empty()) {
-    const String msg = "Ingen notater";
-    const int w = textWidth(epaper, font, msg);
-    drawText(epaper, font, msg,
-             (config::PANEL_WIDTH - w) / 2, y + 40, FontSize::Small);
-    font.unload();
-    return;
-  }
-
   const size_t toShow =
       data.journal.size() > 5 ? 5 : data.journal.size();
   for (size_t i = 0; i < toShow; ++i) {
-    const dashboard::JournalEntry& j = data.journal[i];
-
-    // Date + type header.
-    const String head = j.dato + "  " + j.type;
-    drawText(epaper, font, head, MARGIN, y, FontSize::Small);
+    const dashboard::JournalEntry& e = data.journal[i];
+    // Date + type on the left.
+    const String left = e.dato + "  " + e.type;
+    drawText(epaper, font, left, MARGIN, y, FontSize::Small);
     y += textHeight(epaper, font) + LINE_GAP;
-
-    // Note (may wrap — simple word-wrap to panel width).
-    const int maxW = config::PANEL_WIDTH - 2 * MARGIN;
-    String line;
-    line.reserve(j.note.length());
-    for (int ci = 0; ci < static_cast<int>(j.note.length()); ++ci) {
-      line += j.note[ci];
-      if (j.note[ci] == ' ' || ci == static_cast<int>(j.note.length()) - 1) {
-        const int lw = textWidth(epaper, font, line);
-        if (lw > maxW) {
-          // Trim back to last space.
-          const int lastSpace = line.lastIndexOf(' ');
-          if (lastSpace > 0) {
-            const String toDraw = line.substring(0, lastSpace);
-            drawText(epaper, font, toDraw, MARGIN, y, FontSize::Small);
-            y += textHeight(epaper, font) + LINE_GAP;
-            line = line.substring(lastSpace + 1);
-          } else {
-            drawText(epaper, font, line, MARGIN, y, FontSize::Small);
-            y += textHeight(epaper, font) + LINE_GAP;
-            line = "";
-          }
+    // Note with word-wrap.
+    String remaining = e.note;
+    while (remaining.length() > 0) {
+      const int maxW = config::PANEL_WIDTH - 2 * MARGIN;
+      String line = remaining;
+      if (textWidth(epaper, font, line) > maxW) {
+        // Trim back to last space that fits.
+        int cut = line.length();
+        while (cut > 0 && textWidth(epaper, font, line.substring(0, cut)) > maxW) {
+          --cut;
         }
+        // Trim back to last space.
+        const int lastSpace = line.lastIndexOf(' ', cut);
+        if (lastSpace > 0) {
+          const String toDraw = line.substring(0, lastSpace);
+          drawText(epaper, font, toDraw, MARGIN, y, FontSize::Small);
+          line = line.substring(lastSpace + 1);
+        } else {
+          const String toDraw = line.substring(0, cut);
+          drawText(epaper, font, toDraw, MARGIN, y, FontSize::Small);
+          line = line.substring(cut);
+        }
+        remaining = line;
+      } else {
+        drawText(epaper, font, line, MARGIN, y, FontSize::Small);
+        remaining = "";
       }
-    }
-    if (line.length() > 0) {
-      drawText(epaper, font, line, MARGIN, y, FontSize::Small);
       y += textHeight(epaper, font) + LINE_GAP;
     }
     y += LINE_GAP;
@@ -482,10 +477,18 @@ inline void renderJournal(EPaper& epaper, SmoothFont& font,
       y += LINE_GAP * 2;
     }
   }
+
+  if (data.journal.empty()) {
+    font.load(FontSize::Medium);
+    const String msg = "Ingen notater ennå";
+    const int w = textWidth(epaper, font, msg);
+    drawText(epaper, font, msg,
+             (config::PANEL_WIDTH - w) / 2, y + 40, FontSize::Medium);
+  }
   font.unload();
 }
 
-// Dispatch: render the requested screen.
+// Dispatch to the per-screen renderer.
 template <typename EPaper>
 inline void renderScreen(EPaper& epaper, SmoothFont& font,
                          Screen screen,
@@ -498,22 +501,16 @@ inline void renderScreen(EPaper& epaper, SmoothFont& font,
   }
 }
 
-// Minimal status screen for WiFi/fetch/parse failures.
+// Status overlay when fetch/parse fails — keeps last-good data hidden.
 template <typename EPaper>
 inline void renderStatus(EPaper& epaper, SmoothFont& font,
-                         const String& title, const String& detail) {
+                        const String& status) {
   clearPanel(epaper);
-  int y = MARGIN + 40;
-  font.load(FontSize::Large);
-  const int tw = textWidth(epaper, font, title);
-  drawText(epaper, font, title, (config::PANEL_WIDTH - tw) / 2, y,
-           FontSize::Large);
-  y += textHeight(epaper, font) + LINE_GAP * 2;
-  font.load(FontSize::Small);
-  int dw = textWidth(epaper, font, detail);
-  if (dw > config::PANEL_WIDTH - 2 * MARGIN) dw = config::PANEL_WIDTH - 2 * MARGIN;
-  drawText(epaper, font, detail, (config::PANEL_WIDTH - dw) / 2, y,
-           FontSize::Small);
+  font.load(FontSize::Medium);
+  const int w = textWidth(epaper, font, status);
+  drawText(epaper, font, status,
+           (config::PANEL_WIDTH - w) / 2,
+           config::PANEL_HEIGHT / 2 - 20, FontSize::Medium);
   font.unload();
 }
 
