@@ -60,14 +60,8 @@ void beginPanel() {
 
 bool mountSdForFonts() {
 #if RETERMINAL_MODEL == 1005
-  // The SD card shares the e-paper's SPI bus. epaper_setup::begin() must
-  // have run first so the bus is configured; we then mount SD on the same
-  // instance and pull CS high so it doesn't fight the panel controller.
-  beginPanel();
-  peripheral_power::enableSd();
-  delay(board::SD_POWER_SETTLE_MS);
-  pinMode(board::PIN_SD_CS, OUTPUT);
-  digitalWrite(board::PIN_SD_CS, HIGH);
+  // SD CS pin and power already configured in setup() before beginPanel().
+  // Now just mount SD on the SPI instance (configured by epaper_setup::begin).
   const bool ok = sd_card::mount(epaper.getSPIinstance(), "/runners-journal");
   if (!ok) {
     LOG.println("[sd] mount failed; smooth fonts unavailable, using GFX fallback");
@@ -203,6 +197,17 @@ void setup() {
 
   const bool buttonWake = isButtonWake();
 
+  // Align with Sticky Arcade's proven sequence: configure SD CS before SPI
+  #if RETERMINAL_MODEL == 1005
+  pinMode(board::PIN_SD_CS, OUTPUT);
+  digitalWrite(board::PIN_SD_CS, HIGH);
+  peripheral_power::enableSd();
+  delay(board::SD_POWER_SETTLE_MS);
+  #endif
+
+  // Initialize panel (configures SPI bus that SD shares)
+  beginPanel();
+
   // Mount SD early so the smooth font is available for the dashboard.
   // The dashboard renders Norwegian text (søndag, løp) via sans_bold_*.vlw.
   // When SD is unavailable the renderer falls back to ASCII GFX fonts.
@@ -250,8 +255,6 @@ void setup() {
              static_cast<unsigned>(data.journal.size()));
 
   wifi_sta::disable();
-
-  beginPanel();
 
   if (buttonWake) {
     // Button wake: show selector/paging. Start on Uke screen.

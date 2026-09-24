@@ -420,7 +420,7 @@ inline void renderSiste(EPaper& epaper, SmoothFont& font,
 
   font.load(FontSize::Small);
   const size_t runsToShow =
-      data.siste_lop.size() > 5 ? 5 : data.siste_lop.size();
+      data.siste_lop.size() > 9 ? 9 : data.siste_lop.size();
   for (size_t i = 0; i < runsToShow; ++i) {
     const dashboard::RunEntry& r = data.siste_lop[i];
 
@@ -481,7 +481,7 @@ inline void renderJournal(EPaper& epaper, SmoothFont& font,
   }
 
   const size_t toShow =
-      data.journal.size() > 5 ? 5 : data.journal.size();
+      data.journal.size() > 9 ? 9 : data.journal.size();
   for (size_t i = 0; i < toShow; ++i) {
     const dashboard::JournalEntry& j = data.journal[i];
 
