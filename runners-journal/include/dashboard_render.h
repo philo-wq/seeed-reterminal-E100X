@@ -19,10 +19,10 @@
 
 namespace dashboard_render {
 
-constexpr uint16_t INK = TFT_GRAY_0;        // svart
-constexpr uint16_t PAPER = TFT_GRAY_3;   // hvit
-constexpr uint16_t INK_SECONDARY = TFT_GRAY_1;  // morkkegraa
-constexpr uint16_t INK_FAINT = TFT_GRAY_2;      // lysegraa
+constexpr uint16_t INK = 0x00;           // svart
+constexpr uint16_t PAPER = 0x01;         // hvit
+constexpr uint16_t INK_SECONDARY = 0x00; // omrisset historisk stolpe
+constexpr uint16_t INK_FAINT = 0x00;      // tynn skillelinje
 
 constexpr int MARGIN = 16;
 constexpr int LINE_GAP = 6;
@@ -338,7 +338,11 @@ inline void renderUke(EPaper& epaper, SmoothFont& font,
         const int barH = static_cast<int>(chartH * (h.km / maxKm));
         const int bx = MARGIN + i * slotW + barGap;
         const int bw = slotW - 2 * barGap;
-        epaper.fillRect(bx, chartBottom - barH, bw, barH, h.naa ? INK : INK_SECONDARY);
+        if (h.naa) {
+  epaper.fillRect(bx, chartBottom - barH, bw, barH, INK);
+} else {
+  epaper.drawRect(bx, chartBottom - barH, bw, barH, INK);
+}
         drawText(epaper, font, h.uke, bx, chartBottom + 2, FontSize::Tiny);
       }
     }
@@ -392,7 +396,11 @@ inline void renderAar(EPaper& epaper, SmoothFont& font,
         const int barH = static_cast<int>(chartH * (h.km / maxKm));
         const int bx = MARGIN + i * slotW + barGap;
         const int bw = slotW - 2 * barGap;
-        epaper.fillRect(bx, chartBottom - barH, bw, barH, h.naa ? INK : INK_SECONDARY);
+        if (h.naa) {
+  epaper.fillRect(bx, chartBottom - barH, bw, barH, INK);
+} else {
+  epaper.drawRect(bx, chartBottom - barH, bw, barH, INK);
+}
         font.load(FontSize::Tiny);
         drawText(epaper, font, h.uke, bx, chartBottom + 2, FontSize::Tiny);
       }

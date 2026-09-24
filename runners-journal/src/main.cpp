@@ -11,6 +11,9 @@
 #include "dashboard_parse.h"
 #include "dashboard_render.h"
 #include "board_pins.h"
+#if RETERMINAL_MODEL == 1005
+#include "e1005_fast_refresh.h"
+#endif
 #include "epaper_setup.h"
 #include "hardware.h"
 #include "panel_traits.h"
@@ -26,6 +29,11 @@ TimestampedLogger appLog(Serial1);
 
 EPaper epaper;
 dashboard_render::SmoothFont smoothFont(epaper);
+#if RETERMINAL_MODEL == 1005
+E1005FastRefresh fastRefresh(epaper);
+constexpr uint8_t kSsd1677BorderWaveformCommand = 0x3C;
+constexpr uint8_t kSsd1677FollowLut1 = 0x01;
+#endif
 
 namespace {
 
@@ -47,9 +55,6 @@ void beginPanel() {
 #endif
   epaper_setup::begin(epaper);
   epaper.setRotation(config::PANEL_ROTATION);
-#if RETERMINAL_MODEL == 1005
-  epaper.initGrayMode(GRAY_LEVEL4);
-#endif
   panelStarted = true;
 }
 
@@ -77,6 +82,23 @@ bool mountSdForFonts() {
 }
 
 void refreshPanel() {
+#if RETERMINAL_MODEL == 1005
+  if (epaper.getColorDepth() == 1) {
+    E1005FastRefresh::Timing timing;
+    const E1005FastRefresh::Result result =
+        fastRefresh.refreshWithGray4Waveform(timing);
+    if (result == E1005FastRefresh::Result::Ok) {
+      LOG.printf("[panel] Gray4 refresh=%lu ms\n",
+                 static_cast<unsigned long>(timing.totalUs / 1000U));
+      return;
+    }
+    LOG.printf("[panel] Gray4 refresh failed: %s; stock refresh\n",
+               E1005FastRefresh::resultMessage(result));
+    epaper.wake();
+    epaper.writecommand(kSsd1677BorderWaveformCommand);
+    epaper.writedata(kSsd1677FollowLut1);
+  }
+#endif
   panel_watchdog::refresh(epaper);
 }
 
