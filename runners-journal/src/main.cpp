@@ -188,6 +188,10 @@ int waitForButton(uint32_t timeoutMs) {
 
 void setup() {
   power_latch::holdOn();
+  // Configure buttons as inputs for navigation (needed after wake)
+  pinMode(board::PIN_BUTTON_0, INPUT_PULLUP);
+  pinMode(board::PIN_BUTTON_1, INPUT_PULLUP);
+  pinMode(board::PIN_BUTTON_2, INPUT_PULLUP);
   hardware::setStatusLed(true);
 
   const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
