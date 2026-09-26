@@ -64,6 +64,14 @@
 #include "usb_screen_capture.h"
 #include "word_search_game.h"
 
+// Runners-Journal includes
+#include "../runners-journal/include/dashboard_data.h"
+#include "../runners-journal/include/dashboard_fetch.h"
+#include "../runners-journal/include/dashboard_parse.h"
+#include "../runners-journal/config.h"
+#include "../runners-journal/secrets.h"
+#include "../common/include/wifi_sta.h"
+
 #if RETERMINAL_MODEL != 1005
 #error "Sticky Arcade supports only reTerminal E1005"
 #endif
@@ -318,6 +326,7 @@ constexpr E1005FastRefresh::Region kReaderRegion = {0, 48, 480, 752};
 
 enum class Screen {
   Menu,
+  RunnersJournal,
   LightsOut,
   Game2048,
   PipeConnect,
@@ -561,9 +570,28 @@ ReversiMode reversiMode = ReversiMode::SinglePlayer;
 ReversiMode connectFourMode = ReversiMode::SinglePlayer;
 Screen currentScreen = Screen::Menu;
 MenuPage currentMenuPage = MenuPage::First;
+
+// Runners-Journal Screen enum (must be defined before use)
+enum class RunnersJournalScreen { Uke, Aar, Siste, Journal };
+constexpr int kRunnersJournalScreenCount = 4;
+
+// Runners-Journal state
+namespace runners_journal {
+  RunnersJournalScreen currentDashboardScreen = RunnersJournalScreen::Uke;
+  dashboard::DashboardData dashboardData;
+  bool dataFetched = false;
+  uint32_t lastActivityTime = 0;
+  bool timerWakesSuppressed = false;
+}
+
 bool touchReady = false;
 bool touchActive = false;
 bool touchActionHandled = false;
+int16_t touchStartX = 0, touchStartY = 0;
+int16_t touchEndX = 0, touchEndY = 0;
+
+// Runners-Journal globals
+// TODO: Integrate smoothFont from runners-journal for proper rendering
 bool lightSleepReady = false;
 Language currentLanguage = Language::English;
 bool languageSelected = false;
@@ -1249,6 +1277,12 @@ void idleInLightSleep() {
     return;
   }
   if (inputHandlingActive()) {
+    delay(5);
+    return;
+  }
+  
+  // Suppress timer-wakes in reader modes
+  if (runners_journal::timerWakesSuppressed) {
     delay(5);
     return;
   }
@@ -5029,12 +5063,163 @@ void showEpubBrowser(bool fullRefresh = true) {
 }
 
 void showRunnersJournal() {
-  // TODO: Implement runners-journal integration
-  // For now, just return to menu (placeholder)
   LOG.println("[runners-journal] Launching Løp...");
-  // Call runners-journal setup() and loop() here
-  // Example: runners_journal_setup(); runners_journal_loop();
-  showMenuPage(MenuPage::First);
+  currentScreen = Screen::RunnersJournal;
+  runners_journal::lastActivityTime = millis();
+  
+  // Suppress timer-wakes while in runners-journal
+  runners_journal::timerWakesSuppressed = true;
+  
+  // Fetch dashboard data if not already fetched
+  if (!runners_journal::dataFetched) {
+    fetchRunnersJournalData();
+  }
+  
+  // Render the current dashboard screen
+  if (runners_journal::dataFetched) {
+    // TODO: Implement full dashboard rendering
+    // For now, just draw a placeholder
+    epaper.fillScreen(TFT_WHITE);
+    epaper.setTextColor(TFT_BLACK);
+    epaper.setTextSize(2);
+    epaper.setCursor(50, 50);
+    epaper.printf("Løp - Screen %d", static_cast<int>(runners_journal::currentDashboardScreen));
+    epaper.setCursor(50, 80);
+    epaper.printf("Total KM: %.1f", runners_journal::dashboardData.uke.total_km);
+    refreshScreen("Runners Journal");
+  } else {
+    // If fetch failed, show error and return to menu
+    LOG.println("[runners-journal] Failed to fetch data, returning to menu");
+    showMenuPage(MenuPage::First);
+    return;
+  }
+  
+  // Enter the runners-journal input loop
+  handleRunnersJournalInput();
+}
+
+void fetchRunnersJournalData() {
+  LOG.println("[runners-journal] Fetching dashboard data...");
+  
+  // Initialize WiFi (reuse sticky-arcade's WiFi logic)
+  String wifiFailure;
+  const wifi_sta::ConnectResult wifiResult = wifi_sta::connectStation(
+      WIFI_SSID, WIFI_PASSWORD, config::WIFI_CONNECT_TIMEOUT_MS, &wifiFailure
+  );
+  
+  if (!wifiResult.connected) {
+    LOG.printf("[runners-journal] WiFi connect failed: %s\n", wifiFailure.c_str());
+    runners_journal::dataFetched = false;
+    return;
+  }
+  
+  LOG.printf("[runners-journal] WiFi connected, IP %s\n", WiFi.localIP().toString().c_str());
+  
+  // Fetch dashboard data
+  String body;
+  String fetchFailure;
+  if (!dashboard_fetch::fetch(body, fetchFailure)) {
+    LOG.printf("[runners-journal] Fetch failed: %s\n", fetchFailure.c_str());
+    wifi_sta::disable();
+    runners_journal::dataFetched = false;
+    return;
+  }
+  
+  LOG.printf("[runners-journal] Fetched %u bytes\n", body.length());
+  
+  // Parse dashboard data
+  if (!dashboard::parse(body, runners_journal::dashboardData)) {
+    LOG.println("[runners-journal] Parse failed");
+    wifi_sta::disable();
+    runners_journal::dataFetched = false;
+    return;
+  }
+  
+  LOG.printf("[runners-journal] Parsed data: uke=%s total_km=%.1f\n",
+             runners_journal::dashboardData.uke.merkelapp.c_str(),
+             runners_journal::dashboardData.uke.total_km);
+  
+  runners_journal::dataFetched = true;
+  wifi_sta::disable();
+}
+
+void handleRunnersJournalInput() {
+  while (currentScreen == Screen::RunnersJournal) {
+    runners_journal::lastActivityTime = millis();
+    
+    // Check for idle timeout (4 minutes)
+    if (millis() - runners_journal::lastActivityTime > 4 * 60 * 1000) {
+      LOG.println("[runners-journal] Idle timeout, sleeping...");
+      powerDownAndSleep();
+      return;
+    }
+    
+    // Poll for touch/buttons
+    pollTouch();
+    ButtonEvent event = {};
+    if (pollButtonEvent(event)) {
+      handleRunnersJournalButton(event);
+    }
+    
+    // Poll for OK long-press (exit to selector)
+    if (okButtonAction::isLongPress()) {
+      LOG.println("[runners-journal] OK long-press, exiting to selector");
+      runners_journal::timerWakesSuppressed = false;
+      showMenuPage(MenuPage::First);
+      return;
+    }
+    
+    // Small delay to prevent CPU overload
+    delay(10);
+  }
+}
+
+void handleRunnersJournalButton(const ButtonEvent& event) {
+  if (event.type != ButtonEvent::Type::Pressed) return;
+  
+  runners_journal::lastActivityTime = millis();
+  
+  if (event.button->pin == board::PIN_BUTTON_1) {
+    // UP: Previous screen (wrap around)
+    int next = static_cast<int>(runners_journal::currentDashboardScreen);
+    next = (next + kRunnersJournalScreenCount - 1) % kRunnersJournalScreenCount;
+    runners_journal::currentDashboardScreen = static_cast<RunnersJournalScreen>(next);
+    // TODO: Re-render dashboard screen
+    epaper.fillScreen(TFT_WHITE);
+    epaper.setTextColor(TFT_BLACK);
+    epaper.setTextSize(2);
+    epaper.setCursor(50, 50);
+    epaper.printf("Løp - Screen %d", next);
+    epaper.setCursor(50, 80);
+    epaper.printf("Total KM: %.1f", runners_journal::dashboardData.uke.total_km);
+    refreshScreen("Runners Journal");
+    LOG.printf("[runners-journal] UP pressed, screen=%d\n", next);
+    return;
+  }
+  
+  if (event.button->pin == board::PIN_BUTTON_2) {
+    // DOWN: Next screen (wrap around)
+    int next = static_cast<int>(runners_journal::currentDashboardScreen);
+    next = (next + 1) % kRunnersJournalScreenCount;
+    runners_journal::currentDashboardScreen = static_cast<RunnersJournalScreen>(next);
+    // TODO: Re-render dashboard screen
+    epaper.fillScreen(TFT_WHITE);
+    epaper.setTextColor(TFT_BLACK);
+    epaper.setTextSize(2);
+    epaper.setCursor(50, 50);
+    epaper.printf("Løp - Screen %d", next);
+    epaper.setCursor(50, 80);
+    epaper.printf("Total KM: %.1f", runners_journal::dashboardData.uke.total_km);
+    refreshScreen("Runners Journal");
+    LOG.printf("[runners-journal] DOWN pressed, screen=%d\n", next);
+    return;
+  }
+  
+  if (event.button->pin == board::PIN_BUTTON_0) {
+    // OK short-press: Do nothing (reserved for future use)
+    LOG.println("[runners-journal] OK short-press (ignored)");
+    return;
+  }
 }
 
 void showEpubReading(bool fullRefresh = false) {
@@ -6156,6 +6341,16 @@ void handleEpubReadingTouch(const Gt911Touch::Point& point) {
     hardware::beep();
     showEpubBrowser(false);
   }
+  
+  // Check for OK long-press (exit to Screen 1 in runners-journal)
+  if (okButtonAction::isLongPress()) {
+    LOG.println("[epub] OK long-press, exiting to runners-journal Screen 1");
+    // Set runners-journal to Screen 1 (Uke) and show it
+    runners_journal::currentDashboardScreen = RunnersJournalScreen::Uke;
+    runners_journal::timerWakesSuppressed = false; // Re-arm timer-wakes
+    showRunnersJournal();
+    return;
+  }
 }
 
 bool handleMinesweeperTouchStart(const Gt911Touch::Point& point) {
@@ -6357,6 +6552,20 @@ void pollTouch() {
     } else if (touchActive && currentScreen == Screen::WordSearch &&
                !touchActionHandled) {
       handleWordSearchSelection(touchStart, touchLast);
+    } else if (touchActive && currentScreen == Screen::EpubReading &&
+               !touchActionHandled) {
+      // Handle swipe left/right for EPUB reader paging
+      const menu_edge_swipe::Direction direction = menu_edge_swipe::detect(
+          touchStart.x, touchStart.y, touchLast.x, touchLast.y,
+          kScreenWidth, kMenuSwipeEdgeWidth, kSwipeThreshold
+      );
+      if (direction == menu_edge_swipe::Direction::Previous) {
+        showPreviousReaderPage();
+        LOG.println("[epub] swipe left -> previous page");
+      } else if (direction == menu_edge_swipe::Direction::Next) {
+        showNextReaderPage();
+        LOG.println("[epub] swipe right -> next page");
+      }
     }
     touchActive = false;
     touchActionHandled = false;
@@ -6438,8 +6647,11 @@ void pollTouch() {
     handleEpubBrowserTouch(point);
     touchActionHandled = true;
   } else if (currentScreen == Screen::EpubReading) {
-    handleEpubReadingTouch(point);
-    touchActionHandled = true;
+    // For EPUB reader, handle swipes for paging
+    if (!menu_edge_swipe::startsAtEdge(point.x, kScreenWidth, kMenuSwipeEdgeWidth)) {
+      handleEpubReadingTouch(point);
+      touchActionHandled = true;
+    }
   } else if (currentScreen == Screen::Game2048) {
     touchActionHandled = handle2048TouchStart(point);
   }
@@ -6546,10 +6758,11 @@ void handleButton(const ButtonEvent& event) {
               FallingBlocksGame::Action::RotateCounterclockwise)) {
         updateFallingBlocks("rotate Falling Blocks counterclockwise");
       }
-    } else if (currentScreen == Screen::EpubReading) {
-      showPreviousReaderPage();
     } else if (currentScreen == Screen::EpubBrowser) {
       showPreviousBrowserPage();
+    } else if (currentScreen == Screen::RunnersJournal) {
+      // Handled in handleRunnersJournalButton()
+      return;
     } else if (currentScreen != Screen::Menu) {
       showMenu();
     } else if (currentMenuPage != MenuPage::First) {
@@ -6566,10 +6779,11 @@ void handleButton(const ButtonEvent& event) {
       if (fallingBlocks.turn(FallingBlocksGame::Action::RotateClockwise)) {
         updateFallingBlocks("rotate Falling Blocks clockwise");
       }
-    } else if (currentScreen == Screen::EpubReading) {
-      showNextReaderPage();
     } else if (currentScreen == Screen::EpubBrowser) {
       showNextBrowserPage();
+    } else if (currentScreen == Screen::RunnersJournal) {
+      // Handled in handleRunnersJournalButton()
+      return;
     } else if (currentScreen == Screen::Menu &&
         static_cast<size_t>(currentMenuPage) + 1 < kMenuPageCount) {
       showMenuPage(
@@ -6649,12 +6863,18 @@ void handleReaderCardRemoval() {
 }
 
 void sleepAfterInactivityIfNeeded() {
+  // Use 4-minute timeout for reader modes, 5-minute otherwise
+  const uint32_t timeoutMs = 
+      (currentScreen == Screen::RunnersJournal ||
+       currentScreen == Screen::EpubBrowser ||
+       currentScreen == Screen::EpubReading) ?
+      4UL * 60UL * 1000UL : kInactivitySleepMs;
+  
   if (inputHandlingActive() ||
-      static_cast<uint32_t>(millis() - lastActivityAtMs) <
-          kInactivitySleepMs) {
+      static_cast<uint32_t>(millis() - lastActivityAtMs) < timeoutMs) {
     return;
   }
-  LOG.println("[games] five minutes inactive; entering deep sleep");
+  LOG.printf("[games] %d minutes inactive; entering deep sleep\n", timeoutMs / (60 * 1000));
   powerDownAndSleep();
 }
 
