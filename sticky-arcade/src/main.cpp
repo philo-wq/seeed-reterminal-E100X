@@ -362,6 +362,7 @@ enum class GameId : uint8_t {
   MahjongSolitaire,
   FallingBlocks,
   EpubReader,
+  RunnersJournal,
   ConnectFour,
   WordSearch,
   Count,
@@ -369,12 +370,13 @@ enum class GameId : uint8_t {
 
 constexpr size_t kGameCount = static_cast<size_t>(GameId::Count);
 constexpr uint8_t kGameOrder[kGameCount] = {
+    static_cast<uint8_t>(GameId::RunnersJournal),
+    static_cast<uint8_t>(GameId::EpubReader),
     static_cast<uint8_t>(GameId::FallingBlocks),
     static_cast<uint8_t>(GameId::ConnectFour),
     static_cast<uint8_t>(GameId::Klondike),
     static_cast<uint8_t>(GameId::MahjongSolitaire),
     static_cast<uint8_t>(GameId::Game2048),
-    static_cast<uint8_t>(GameId::EpubReader),
     static_cast<uint8_t>(GameId::Minesweeper),
     static_cast<uint8_t>(GameId::Sudoku),
     static_cast<uint8_t>(GameId::Reversi),
@@ -696,6 +698,8 @@ const char* gameName(GameId game) {
       return "Falling Blocks";
     case GameId::EpubReader:
       return "EPUB Reader";
+    case GameId::RunnersJournal:
+      return "Løp";
     case GameId::ConnectFour:
       return "Connect Four";
     case GameId::WordSearch:
@@ -716,6 +720,8 @@ const char* shortEnglishGameName(GameId game) {
       return "Mahjong";
     case GameId::FallingBlocks:
       return "Blocks";
+    case GameId::RunnersJournal:
+      return "Løp";
     default:
       return gameName(game);
   }
@@ -755,6 +761,8 @@ TextId gameTextId(GameId game) {
       return TextId::FallingBlocks;
     case GameId::EpubReader:
       return TextId::EpubReader;
+    case GameId::RunnersJournal:
+      return TextId::RunnersJournal;
     case GameId::ConnectFour:
       return TextId::ConnectFour;
     case GameId::WordSearch:
@@ -5020,6 +5028,15 @@ void showEpubBrowser(bool fullRefresh = true) {
   }
 }
 
+void showRunnersJournal() {
+  // TODO: Implement runners-journal integration
+  // For now, just return to menu (placeholder)
+  LOG.println("[runners-journal] Launching Løp...");
+  // Call runners-journal setup() and loop() here
+  // Example: runners_journal_setup(); runners_journal_loop();
+  showMenuPage(MenuPage::First);
+}
+
 void showEpubReading(bool fullRefresh = false) {
   currentScreen = Screen::EpubReading;
   saveResumeState();
@@ -5268,6 +5285,9 @@ void launchGame(GameId game) {
       break;
     case GameId::EpubReader:
       showEpubBrowser();
+      break;
+    case GameId::RunnersJournal:
+      showRunnersJournal();
       break;
     case GameId::ConnectFour:
       showConnectFour();

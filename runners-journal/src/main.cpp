@@ -180,7 +180,8 @@ int waitForButton(uint32_t timeoutMs) {
 
 }  // namespace
 
-void setup() {
+// External entry point for sticky-arcade
+void runners_journal_run() {
   power_latch::holdOn();
   // Configure buttons as inputs for navigation (needed after wake)
   pinMode(board::PIN_BUTTON_0, INPUT_PULLUP);
