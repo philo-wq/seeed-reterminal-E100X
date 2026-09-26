@@ -213,6 +213,11 @@ void setup() {
   // When SD is unavailable the renderer falls back to ASCII GFX fonts.
   mountSdForFonts();
 
+  // Pre-validate font files exist on SD
+  if (sdReady) {
+    smoothFont.preloadAll();
+  }
+
   // --- Fetch dashboard data (always, even on button wake, so paging ---
   // --- shows fresh data rather than a stale cached frame).           ---
   String wifiFailure;
