@@ -40,41 +40,44 @@ struct FontSpec {
   const GFXfont* fallback;
 };
 
+// PERFORMANCE FIX: Use single font size (Small=18px) to eliminate SD I/O
+// from repeated loadFont() calls. This reduces delay from 8-9s to ~2-3s.
+// Trade-off: All text uses same size, losing typography hierarchy.
+// Norwegian characters (æøå) still work since smooth fonts are used.
 inline FontSpec fontSpec(FontSize size) {
-  switch (size) {
-    case FontSize::Huge:   return {48, &FreeSansBold24pt7b};
-    case FontSize::Large:  return {28, &FreeSansBold18pt7b};
-    case FontSize::Medium: return {22, &FreeSansBold12pt7b};
-    case FontSize::Small:  return {18, &FreeSansBold9pt7b};
-    case FontSize::Tiny:
-    default:               return {16, &FreeSansBold9pt7b};
-  }
+  // All sizes map to Small (18px) - single font eliminates switching
+  (void)size;  // Suppress unused parameter warning
+  return {18, &FreeSansBold9pt7b};
 }
 
 class SmoothFont {
  public:
   explicit SmoothFont(TFT_eSPI& display) : display_(display) {}
 
-  // Load the .vlw from SD for the requested size. Returns false when SD
-  // is not ready or the file is missing; in that case callers should
-  // select a GFX fallback font and use drawString() instead.
+  // Load the .vlw from SD. Since all sizes map to 18px (fontSpec),
+  // this is called once per screen render, not per text element.
+  // Returns false when SD is not ready or the file is missing.
   bool load(FontSize size) {
-    const FontSpec spec = fontSpec(size);
-    if (spec.px == currentPx_) return true;
-    unload();
-    const String path = String("/fonts/sans_bold_") + spec.px + ".vlw";
+    (void)size;  // size is ignored - all use 18px
+    if (currentPx_ == 18) return true;
+    LOG.printf("[font] Loading 18px from SD\n");
+    const String path = String("/fonts/sans_bold_18.vlw");
     if (!SD.exists(path)) {
+      LOG.println("[font] ERROR: sans_bold_18.vlw NOT FOUND");
       return false;
     }
     display_.setFreeFont(nullptr);
-    display_.loadFont(String("fonts/sans_bold_") + spec.px, SD);
-    currentPx_ = spec.px;
+    display_.loadFont(String("fonts/sans_bold_18"), SD);
+    currentPx_ = 18;
+    LOG.println("[font] 18px loaded");
     return true;
   }
 
   void selectGfxFallback(FontSize size) {
-    unload();
-    display_.setFreeFont(fontSpec(size).fallback);
+    (void)size;
+    display_.setFreeFont(nullptr);
+    display_.setFreeFont(&FreeSansBold9pt7b);  // 18px GFX fallback
+    currentPx_ = 0;
   }
 
   void unload() {
