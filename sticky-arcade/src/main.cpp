@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <SD.h>
 #include <TFT_eSPI.h>
+#include <WiFi.h>
 #include <Wire.h>
 #include <driver/gpio.h>
 #include <driver/rtc_io.h>
@@ -65,12 +66,12 @@
 #include "word_search_game.h"
 
 // Runners-Journal includes
-#include "../runners-journal/include/dashboard_data.h"
-#include "../runners-journal/include/dashboard_fetch.h"
-#include "../runners-journal/include/dashboard_parse.h"
-#include "../runners-journal/config.h"
-#include "../runners-journal/secrets.h"
-#include "../common/include/wifi_sta.h"
+#include "dashboard_data.h"
+#include "dashboard_fetch.h"
+#include "dashboard_parse.h"
+#include "runners_journal_config.h"
+#include "secrets.h"
+#include "../../common/include/wifi_sta.h"
 
 #if RETERMINAL_MODEL != 1005
 #error "Sticky Arcade supports only reTerminal E1005"
@@ -404,7 +405,7 @@ constexpr size_t kGamesPerMenuPage =
     sizeof(kMenuCardSlots) / sizeof(kMenuCardSlots[0]);
 constexpr size_t kMenuPageCount =
     (kGameCount + kGamesPerMenuPage - 1) / kGamesPerMenuPage;
-static_assert(kMenuPageCount == 3);
+static_assert(kMenuPageCount == 4);
 constexpr bool validGameOrder() {
   bool seen[kGameCount] = {};
   for (const uint8_t game : kGameOrder) {
@@ -540,6 +541,14 @@ enum class SleepScreen {
   Charge,
 };
 
+// Forward declarations for runners-journal functions
+void fetchRunnersJournalData();
+void handleRunnersJournalInput();
+void handleRunnersJournalButton(const ButtonEvent& event);
+void showMenuPage(MenuPage page, bool beep);
+void powerDownAndSleep(SleepScreen screen, int batteryPercent);
+void pollTouch();
+
 TwoWire touchWire(1);
 Gt911Touch touch;
 E1005FastRefresh fastRefresh(epaper);
@@ -589,6 +598,10 @@ bool touchActive = false;
 bool touchActionHandled = false;
 int16_t touchStartX = 0, touchStartY = 0;
 int16_t touchEndX = 0, touchEndY = 0;
+
+// OK button long-press tracking
+uint32_t okButtonPressedAtMs = 0;
+constexpr uint32_t kLongPressThresholdMs = 600;  // ~600ms for long-press
 
 // Runners-Journal globals
 // TODO: Integrate smoothFont from runners-journal for proper rendering
@@ -5090,7 +5103,7 @@ void showRunnersJournal() {
   } else {
     // If fetch failed, show error and return to menu
     LOG.println("[runners-journal] Failed to fetch data, returning to menu");
-    showMenuPage(MenuPage::First);
+    showMenuPage(MenuPage::First, true);
     return;
   }
   
@@ -5150,7 +5163,7 @@ void handleRunnersJournalInput() {
     // Check for idle timeout (4 minutes)
     if (millis() - runners_journal::lastActivityTime > 4 * 60 * 1000) {
       LOG.println("[runners-journal] Idle timeout, sleeping...");
-      powerDownAndSleep();
+      powerDownAndSleep(SleepScreen::Resume, -1);
       return;
     }
     
@@ -5161,21 +5174,13 @@ void handleRunnersJournalInput() {
       handleRunnersJournalButton(event);
     }
     
-    // Poll for OK long-press (exit to selector)
-    if (okButtonAction::isLongPress()) {
-      LOG.println("[runners-journal] OK long-press, exiting to selector");
-      runners_journal::timerWakesSuppressed = false;
-      showMenuPage(MenuPage::First);
-      return;
-    }
-    
     // Small delay to prevent CPU overload
     delay(10);
   }
 }
 
 void handleRunnersJournalButton(const ButtonEvent& event) {
-  if (event.type != ButtonEvent::Type::Pressed) return;
+  if (event.heldMs == 0) return;
   
   runners_journal::lastActivityTime = millis();
   
@@ -6341,17 +6346,6 @@ void handleEpubReadingTouch(const Gt911Touch::Point& point) {
     hardware::beep();
     showEpubBrowser(false);
   }
-  
-  // Check for OK long-press (exit to Screen 1 in runners-journal)
-  if (okButtonAction::isLongPress()) {
-    LOG.println("[epub] OK long-press, exiting to runners-journal Screen 1");
-    // Set runners-journal to Screen 1 (Uke) and show it
-    runners_journal::currentDashboardScreen = RunnersJournalScreen::Uke;
-    runners_journal::timerWakesSuppressed = false; // Re-arm timer-wakes
-    showRunnersJournal();
-    return;
-  }
-}
 
 bool handleMinesweeperTouchStart(const Gt911Touch::Point& point) {
   if (kBackButton.contains(point.x, point.y)) {
@@ -6737,9 +6731,26 @@ void handleButton(const ButtonEvent& event) {
         handleShortOkPress();
         return;
       case ok_button::Action::DeepSleep:
-        hardware::beep();
-        powerDownAndSleep();
-        return;
+        // In reader modes, OK long-press exits to another screen
+        if (currentScreen == Screen::EpubReading) {
+          // Exit EPUB reader to RunnersJournal Screen 1 (Uke)
+          LOG.println("[epub] OK long-press, exiting to runners-journal Screen 1");
+          runners_journal::currentDashboardScreen = RunnersJournalScreen::Uke;
+          runners_journal::timerWakesSuppressed = false; // Re-arm timer-wakes
+          showRunnersJournal();
+          return;
+        } else if (currentScreen == Screen::RunnersJournal) {
+          // Exit RunnersJournal to selector
+          LOG.println("[runners-journal] OK long-press, exiting to selector");
+          runners_journal::timerWakesSuppressed = false; // Re-arm timer-wakes
+          showMenuPage(MenuPage::First, true);
+          return;
+        } else {
+          // Default: Deep sleep
+          hardware::beep();
+          powerDownAndSleep();
+          return;
+        }
     }
   }
 
