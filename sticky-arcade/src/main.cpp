@@ -2578,17 +2578,21 @@ void pollTouch() {
       }
     } else if (touchActive && currentScreen == Screen::EpubReading &&
                !touchActionHandled) {
-      // Handle swipe left/right for EPUB reader paging
-      const menu_edge_swipe::Direction direction = menu_edge_swipe::detect(
-          touchStart.x, touchStart.y, touchLast.x, touchLast.y,
-          kScreenWidth, kMenuSwipeEdgeWidth, kSwipeThreshold
-      );
-      if (direction == menu_edge_swipe::Direction::Previous) {
-        showPreviousReaderPage();
-        LOG.println("[epub] swipe left -> previous page");
-      } else if (direction == menu_edge_swipe::Direction::Next) {
-        showNextReaderPage();
-        LOG.println("[epub] swipe right -> next page");
+      const int dx = static_cast<int>(touchLast.x) -
+                     static_cast<int>(touchStart.x);
+      const int dy = static_cast<int>(touchLast.y) -
+                     static_cast<int>(touchStart.y);
+      if (menu_edge_swipe::absolute(dx) >= kSwipeThreshold &&
+          menu_edge_swipe::absolute(dx) > menu_edge_swipe::absolute(dy)) {
+        if (dx < 0) {
+          showNextReaderPage();
+          LOG.println("[epub] swipe left -> next page");
+        } else {
+          showPreviousReaderPage();
+          LOG.println("[epub] swipe right -> previous page");
+        }
+      } else {
+        handleEpubReadingTouch(touchStart);
       }
     }
     touchActive = false;
@@ -2622,15 +2626,9 @@ void pollTouch() {
     touchActionHandled = true;
   } else if (helpPaneVisible) {
     touchActionHandled = true;
-  } else if (currentScreen == Screen::EpubBrowser) {  } else if (currentScreen == Screen::EpubBrowser) {
+  } else if (currentScreen == Screen::EpubBrowser) {
     handleEpubBrowserTouch(point);
     touchActionHandled = true;
-  } else if (currentScreen == Screen::EpubReading) {
-    // For EPUB reader, handle swipes for paging
-    if (!menu_edge_swipe::startsAtEdge(point.x, kScreenWidth, kMenuSwipeEdgeWidth)) {
-      handleEpubReadingTouch(point);
-      touchActionHandled = true;
-    }
   }
 }
 
