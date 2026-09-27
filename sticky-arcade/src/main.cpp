@@ -141,6 +141,7 @@ constexpr Rect kLanguageButtons[] = {
     {60, 545, 360, 72},
 };
 Rect kEpubReaderMenuCard = kMenuCardSlots[2];
+Rect kRunnersJournalMenuCard = kMenuCardSlots[3];
 constexpr Rect kPreviousPageButton = {8, 756, 48, 36};
 constexpr Rect kNextPageButton = {424, 756, 48, 36};
 constexpr Rect kBackButton = {8, 6, 48, 36};
@@ -768,6 +769,8 @@ Rect& menuCardFor(GameId game) {
   switch (game) {
     case GameId::EpubReader:
       return kEpubReaderMenuCard;
+    case GameId::RunnersJournal:
+      return kRunnersJournalMenuCard;
     case GameId::Count:
       break;
   }
@@ -789,6 +792,36 @@ void drawEpubReaderMenuCard() {
   drawCentered("EPUB", left + kBookWidth / 2, top + 103, 2);
 }
 
+void drawRunnersJournalMenuCard() {
+  drawMenuCardFrame(kRunnersJournalMenuCard);
+  const int centerX = kRunnersJournalMenuCard.x + kRunnersJournalMenuCard.width / 2;
+  const int baseY = kRunnersJournalMenuCard.y + kMenuPreviewSize / 2 + 52;
+  const int groundY = baseY + 6;
+  epaper.drawFastHLine(centerX - 62, groundY, 124, TFT_BLACK);
+  epaper.drawCircle(centerX - 28, baseY - 78, 9, TFT_BLACK);
+  epaper.drawLine(centerX - 26, baseY - 68, centerX - 22, baseY - 44, TFT_BLACK);
+  epaper.drawLine(centerX - 30, baseY - 68, centerX - 34, baseY - 44, TFT_BLACK);
+  epaper.drawLine(centerX - 22, baseY - 44, centerX - 18, baseY - 10, TFT_BLACK);
+  epaper.drawLine(centerX - 34, baseY - 44, centerX - 38, baseY - 12, TFT_BLACK);
+  epaper.drawLine(centerX - 18, baseY - 10, centerX - 4, baseY, TFT_BLACK);
+  epaper.drawLine(centerX - 38, baseY - 12, centerX - 48, baseY, TFT_BLACK);
+  epaper.drawLine(centerX - 18, baseY - 42, centerX - 2, baseY - 34, TFT_BLACK);
+  epaper.drawLine(centerX - 36, baseY - 44, centerX - 50, baseY - 38, TFT_BLACK);
+  epaper.drawLine(centerX - 30, baseY - 30, centerX - 14, baseY - 18, TFT_BLACK);
+  epaper.drawLine(centerX - 34, baseY - 32, centerX - 48, baseY - 22, TFT_BLACK);
+  epaper.drawLine(centerX + 14, baseY - 74, centerX + 16, baseY - 48, TFT_BLACK);
+  epaper.drawLine(centerX + 10, baseY - 74, centerX + 6, baseY - 50, TFT_BLACK);
+  epaper.drawLine(centerX + 16, baseY - 48, centerX + 18, baseY - 14, TFT_BLACK);
+  epaper.drawLine(centerX + 6, baseY - 50, centerX + 2, baseY - 16, TFT_BLACK);
+  epaper.drawLine(centerX + 18, baseY - 14, centerX + 32, baseY - 4, TFT_BLACK);
+  epaper.drawLine(centerX + 2, baseY - 16, centerX - 12, baseY - 2, TFT_BLACK);
+  epaper.drawLine(centerX + 14, baseY - 46, centerX + 30, baseY - 38, TFT_BLACK);
+  epaper.drawLine(centerX + 4, baseY - 48, centerX - 12, baseY - 40, TFT_BLACK);
+  epaper.drawLine(centerX + 16, baseY - 32, centerX + 32, baseY - 20, TFT_BLACK);
+  epaper.drawLine(centerX + 2, baseY - 34, centerX - 14, baseY - 22, TFT_BLACK);
+  drawCentered("KM", centerX, baseY - 104, 2);
+}
+
 void arrangeMenuCards() {
   for (size_t position = 0; position < kGameCount; ++position) {
     menuCardFor(orderedGameAt(position)) =
@@ -800,6 +833,9 @@ void drawGameMenuCard(GameId game) {
   switch (game) {
     case GameId::EpubReader:
       drawEpubReaderMenuCard();
+      break;
+    case GameId::RunnersJournal:
+      drawRunnersJournalMenuCard();
       break;
     case GameId::Count:
       return;
