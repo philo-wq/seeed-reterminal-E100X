@@ -29,6 +29,11 @@
 #include "epub_text.h"
 #include "game_help_text.h"
 #include "game_language_store.h"
+#include "config_portal.h"
+#include "wifi_schema.h"
+#include "config_portal_ui.h"
+#include "dashboard_render.h"
+#include "sticky_wifi_credentials.h"
 #include "game_localization.h"
 #include "game_progress_store.h"
 #include "game_ui_fonts.h"
@@ -667,7 +672,6 @@ bool containsNonAscii(const char* text, size_t length) {
 }
 
 const uint8_t* smoothFontFor(int pixelSize) {
-  if (pixelSize >= 32) return game_ui_fonts::kGameUiFont32;
   if (pixelSize >= 24) return game_ui_fonts::kGameUiFont24;
   return game_ui_fonts::kGameUiFont16;
 }
@@ -686,7 +690,7 @@ void drawCenteredText(const String& text, int x, int y, int font,
     return;
   }
 
-  int pixelSize = font >= 6 ? 32 : font >= 4 ? 24 : 16;
+  int pixelSize = font >= 4 ? 24 : 16;
   epaper.loadFont(smoothFontFor(pixelSize));
   if (pixelSize > 16 && epaper.textWidth(text) > maxWidth) {
     epaper.unloadFont();
@@ -2126,6 +2130,18 @@ void showEpubBrowser(bool fullRefresh = true) {
   }
 }
 
+void renderDashboardScreen() {
+  dashboard_render::SmoothFont font(epaper);
+  const bool smoothOk = sdCardReady && font.load(dashboard_render::FontSize::Small);
+  if (!smoothOk) font.selectGfxFallback(dashboard_render::FontSize::Small);
+  dashboard_render::renderScreen(
+      epaper, font,
+      static_cast<dashboard_render::Screen>(
+          static_cast<int>(runners_journal::currentDashboardScreen)),
+      runners_journal::dashboardData);
+  font.unload();
+}
+
 void showRunnersJournal() {
   LOG.println("[runners-journal] Launching Løp...");
   currentScreen = Screen::RunnersJournal;
@@ -2139,36 +2155,104 @@ void showRunnersJournal() {
     fetchRunnersJournalData();
   }
   
-  // Render the current dashboard screen
-  if (runners_journal::dataFetched) {
-    // TODO: Implement full dashboard rendering
-    // For now, just draw a placeholder
-    epaper.fillScreen(TFT_WHITE);
-    epaper.setTextColor(TFT_BLACK);
-    epaper.setTextSize(2);
-    epaper.setCursor(50, 50);
-    epaper.printf("Løp - Screen %d", static_cast<int>(runners_journal::currentDashboardScreen));
-    epaper.setCursor(50, 80);
-    epaper.printf("Total KM: %.1f", runners_journal::dashboardData.uke.total_km);
-    refreshScreen("Runners Journal");
-  } else {
-    // If fetch failed, show error and return to menu
-    LOG.println("[runners-journal] Failed to fetch data, returning to menu");
-    showMenuPage(MenuPage::First, true);
+  if (!runners_journal::dataFetched) {
+    LOG.println("[runners-journal] fetch failed; showing status");
+    dashboard_render::SmoothFont font(epaper);
+    const bool smoothOk = sdCardReady && font.load(dashboard_render::FontSize::Small);
+    if (!smoothOk) font.selectGfxFallback(dashboard_render::FontSize::Small);
+    dashboard_render::renderStatus(
+        epaper, font, "Løp",
+        "Kunne ikke hente data. Sjekk Wi-Fi (velg Løp igjen for å prøve på nytt).");
+    font.unload();
+    refreshScreen("Runners Journal status");
+    handleRunnersJournalInput();
     return;
   }
+  
+  renderDashboardScreen();
+  refreshScreen("Runners Journal");
   
   // Enter the runners-journal input loop
   handleRunnersJournalInput();
 }
 
+void runConfigPortalAndReboot();
+
+void runConfigPortalAndReboot() {
+  LOG.println("[portal] entering config portal");
+  disableLightSleepWake();
+  const uint32_t drawStart = millis();
+
+  config_portal::Config portalCfg;
+  portalCfg.wifiSchema = &config_portal::kWifiSchema;
+  portalCfg.appName = "sticky arcade";
+  portalCfg.useAutoApPassword = true;
+  portalCfg.wifiFallback = [](const char* key) -> String {
+    if (strcmp(key, "ssid") == 0) return String(sticky_wifi::ssid());
+    if (strcmp(key, "password") == 0) return String(sticky_wifi::password());
+    return String();
+  };
+
+  if (!config_portal::begin(portalCfg)) {
+    LOG.println("[portal] begin failed; rebooting");
+    delay(250);
+    ESP.restart();
+  }
+
+  config_portal::ui::RenderInfo info;
+  info.modelLabel = "reTerminal E1005";
+  info.title = "Løpedagbok";
+  info.tagline = "Koble til for å sette Wi-Fi";
+  info.ssid = config_portal::currentSsid();
+  info.wifiPassword = config_portal::currentApPassword();
+  info.url = String("http://") + config_portal::currentIp().toString();
+  info.macAddress = WiFi.macAddress();
+  info.wifiPayload = config_portal::wifiQrPayload(
+      info.ssid, info.wifiPassword.length() ? info.wifiPassword.c_str() : nullptr);
+  info.urlPayload = config_portal::urlQrPayload(
+      config_portal::currentIp(), config_portal::currentPort(), "/wifi");
+  info.footerHint = "OK-knapp = start på nytt";
+  info.fonts.titleFont = &FreeSansBold9pt7b;
+  info.fonts.subtitleFont = &FreeSansBold9pt7b;
+  info.fonts.captionFont = &FreeSansBold9pt7b;
+  info.fonts.detailFont = &FreeSansBold9pt7b;
+
+  config_portal::ui::renderPortalScreen<EPaper>(
+      epaper, kScreenWidth, kScreenHeight, TFT_BLACK, TFT_WHITE, info);
+  LOG.printf("[portal] splash drawn in %u ms\n",
+             static_cast<unsigned>(millis() - drawStart));
+  epaper.update();
+  LOG.println("[portal] splash committed; serving Wi-Fi portal");
+
+  while (!config_portal::rebootRequested()) {
+    config_portal::loop();
+    if (digitalRead(board::PIN_BUTTON_0) == LOW) {
+      hardware::beep();
+      LOG.println("[portal] OK pressed; rebooting");
+      delay(200);
+      ESP.restart();
+    }
+    delay(2);
+  }
+  LOG.println("[portal] reboot requested; restarting");
+  delay(250);
+  ESP.restart();
+}
+
 void fetchRunnersJournalData() {
   LOG.println("[runners-journal] Fetching dashboard data...");
   
-  // Initialize WiFi (reuse sticky-arcade's WiFi logic)
+  if (!sticky_wifi::haveCredentials()) {
+    LOG.println("[runners-journal] no Wi-Fi credentials; launching config portal");
+    runners_journal::dataFetched = false;
+    runConfigPortalAndReboot();
+    return;
+  }
+  
   String wifiFailure;
   const wifi_sta::ConnectResult wifiResult = wifi_sta::connectStation(
-      WIFI_SSID, WIFI_PASSWORD, config::WIFI_CONNECT_TIMEOUT_MS, &wifiFailure
+      sticky_wifi::ssid(), sticky_wifi::password(),
+      config::WIFI_CONNECT_TIMEOUT_MS, &wifiFailure
   );
   
   if (!wifiResult.connected) {
@@ -2240,14 +2324,7 @@ void handleRunnersJournalButton(const ButtonEvent& event) {
     int next = static_cast<int>(runners_journal::currentDashboardScreen);
     next = (next + kRunnersJournalScreenCount - 1) % kRunnersJournalScreenCount;
     runners_journal::currentDashboardScreen = static_cast<RunnersJournalScreen>(next);
-    // TODO: Re-render dashboard screen
-    epaper.fillScreen(TFT_WHITE);
-    epaper.setTextColor(TFT_BLACK);
-    epaper.setTextSize(2);
-    epaper.setCursor(50, 50);
-    epaper.printf("Løp - Screen %d", next);
-    epaper.setCursor(50, 80);
-    epaper.printf("Total KM: %.1f", runners_journal::dashboardData.uke.total_km);
+    renderDashboardScreen();
     refreshScreen("Runners Journal");
     LOG.printf("[runners-journal] UP pressed, screen=%d\n", next);
     return;
@@ -2258,14 +2335,7 @@ void handleRunnersJournalButton(const ButtonEvent& event) {
     int next = static_cast<int>(runners_journal::currentDashboardScreen);
     next = (next + 1) % kRunnersJournalScreenCount;
     runners_journal::currentDashboardScreen = static_cast<RunnersJournalScreen>(next);
-    // TODO: Re-render dashboard screen
-    epaper.fillScreen(TFT_WHITE);
-    epaper.setTextColor(TFT_BLACK);
-    epaper.setTextSize(2);
-    epaper.setCursor(50, 50);
-    epaper.printf("Løp - Screen %d", next);
-    epaper.setCursor(50, 80);
-    epaper.printf("Total KM: %.1f", runners_journal::dashboardData.uke.total_km);
+    renderDashboardScreen();
     refreshScreen("Runners Journal");
     LOG.printf("[runners-journal] DOWN pressed, screen=%d\n", next);
     return;
@@ -2871,6 +2941,7 @@ void setup() {
   LOG.println();
   LOG.printf("[games] reTerminal E1005 %s\n", kAppName);
   hardware::beep();
+  sticky_wifi::load();
   const game_language_store::LoadResult languageResult =
       game_language_store::load();
   if (languageResult.status == game_language_store::Status::Ok) {
