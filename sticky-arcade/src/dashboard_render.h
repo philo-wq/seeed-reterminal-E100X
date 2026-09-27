@@ -40,14 +40,32 @@ struct FontSpec {
   const GFXfont* fallback;
 };
 
-// PERFORMANCE FIX: Use single font size (Small=18px) to eliminate SD I/O
-// from repeated loadFont() calls. This reduces delay from 8-9s to ~2-3s.
-// Trade-off: All text uses same size, losing typography hierarchy.
-// Norwegian characters (æøå) still work since smooth fonts are used.
+// PERFORMANCE + TYPOGRAPHY: Body text uses a single SD smooth font size
+// (18px preferred) so each screen render pays one loadFont() from SD.
+// Hierarchy is restored via the hero numerals, which are drawn with the
+// flash-resident FreeSansBold24pt7b (~48px bold) GFX font while no smooth
+// font is loaded — zero SD I/O. Hero strings are digits/ASCII only, so
+// the GFX font's Latin-1 limits never affect Norwegian body text.
 inline FontSpec fontSpec(FontSize size) {
-  // All sizes map to Small (18px) - single font eliminates switching
-  (void)size;  // Suppress unused parameter warning
+  (void)size;  // single body size policy
   return {18, &FreeSansBold9pt7b};
+}
+
+// Hero helpers: must be called while SmoothFont is UNLOADED, otherwise
+// TFT_eSPI routes drawString/textWidth through the loaded .vlw font.
+inline void selectHeroFont(TFT_eSPI& epaper) {
+  epaper.setTextDatum(TL_DATUM);
+  epaper.setFreeFont(&FreeSansBold24pt7b);
+  epaper.setTextColor(INK);
+}
+
+// "W31" -> "31": the W prefix makes nine 18px labels collide in ~50px
+// chart slots; the bare week number centers cleanly.
+inline String historyLabel(const String& uke) {
+  if (uke.length() > 1 && (uke[0] == 'W' || uke[0] == 'w')) {
+    return uke.substring(1);
+  }
+  return uke;
 }
 
 
@@ -64,7 +82,7 @@ class SmoothFont {
     if (availablePx == 0) return false;
     if (availablePx < 0) {
       availablePx = 0;
-      for (const char* name : {"sans_bold_24", "sans_bold_18", "sans_bold_16"}) {
+      for (const char* name : {"sans_bold_18", "sans_bold_24", "sans_bold_16"}) {
         const String path = String("/fonts/") + name + ".vlw";
         if (SD.exists(path)) {
           availablePx = atoi(name + strlen(name) - 2);
@@ -265,6 +283,32 @@ inline void drawRight(TFT_eSPI& epaper, SmoothFont& font,
   drawText(epaper, font, text, config::PANEL_WIDTH - MARGIN - w, y, size);
 }
 
+// Draw a hero (digits/ASCII-only) string with the 48px bold GFX font.
+// Requires font to be unloaded so TFT_eSPI does not hijack drawString with
+// the smooth font. Returns the drawn width. drawString y is the glyph
+// top-left for the GFX path with TL_DATUM. A negative top skips drawing
+// and only measures.
+inline int drawHero(TFT_eSPI& epaper, SmoothFont& font, const String& text,
+                    int left, int top) {
+  font.unload();
+  selectHeroFont(epaper);
+  const int w = epaper.textWidth(text);
+  if (top >= 0) epaper.drawString(text, left, top);
+  return w;
+}
+
+inline int heroTextWidth(TFT_eSPI& epaper, SmoothFont& font,
+                         const String& text) {
+  return drawHero(epaper, font, text, 0, -1);
+}
+
+// Draw hero text right-aligned against x, at vertical `top`.
+inline int drawHeroRight(TFT_eSPI& epaper, SmoothFont& font,
+                         const String& text, int right, int top) {
+  const int w = heroTextWidth(epaper, font, text);
+  return drawHero(epaper, font, text, right - w, top);
+}
+
 // ── Screen 1: Uke ───────────────────────────────────────────────────
 // km, mål%, type-fordeling, høydemeter, total tid, mot forrige uke.
 template <typename EPaper>
@@ -274,28 +318,24 @@ inline void renderUke(EPaper& epaper, SmoothFont& font,
   drawHeader(epaper, font, data.uke.merkelapp, data.oppdatert);
   int y = MARGIN + textHeight(epaper, font) + LINE_GAP * 3;
 
-  // Weekly progress: total km + goal percentage.
-  font.load(FontSize::Huge);
+  // Hero row: total km (48px bold GFX) + goal percentage right-aligned.
+  // Both are digits/ASCII only, so no Norwegian glyph is needed here.
+  // Both heroes draw while the smooth font is unloaded (single SD load
+  // happens afterwards, when the body text needs it again).
   {
     const String km = kmString(data.uke.total_km);
-    drawText(epaper, font, km, MARGIN, y, FontSize::Huge);
-    const int kmW = textWidth(epaper, font, km);
-    font.load(FontSize::Medium);
-    drawText(epaper, font, "km", MARGIN + kmW + 8, y + 18, FontSize::Medium);
-  }
-  font.load(FontSize::Large);
-  {
     const String pct = pctString(data.uke.maal_pct);
-    const int w = textWidth(epaper, font, pct);
-    drawText(epaper, font, pct,
-             config::PANEL_WIDTH - MARGIN - w, y, FontSize::Large);
-    const String goal = String("av ") + data.maal_km + " km";
+    const int kmW = drawHero(epaper, font, km, MARGIN, y);
+    drawHeroRight(epaper, font, pct, config::PANEL_WIDTH - MARGIN, y);
+
     font.load(FontSize::Small);
+    drawText(epaper, font, "km", MARGIN + kmW + 10, y + 32, FontSize::Small);
+    const String goal = String("av ") + data.maal_km + " km";
     const int gw = textWidth(epaper, font, goal);
     drawText(epaper, font, goal,
-             config::PANEL_WIDTH - MARGIN - gw, y + 34, FontSize::Small);
+             config::PANEL_WIDTH - MARGIN - gw, y + 56, FontSize::Small);
   }
-  y += 60 + LINE_GAP * 2;
+  y += 68 + LINE_GAP * 2;
   drawHairline(epaper, y);
   y += LINE_GAP * 2;
 
@@ -347,6 +387,7 @@ inline void renderUke(EPaper& epaper, SmoothFont& font,
       const int n = static_cast<int>(data.historikk.size());
       const int slotW = (config::PANEL_WIDTH - 2 * MARGIN) / n;
       const int barGap = 4;
+      font.load(FontSize::Tiny);
       for (int i = 0; i < n; ++i) {
         const dashboard::HistoryEntry& h = data.historikk[i];
         const int barH = static_cast<int>(chartH * (h.km / maxKm));
@@ -357,7 +398,10 @@ inline void renderUke(EPaper& epaper, SmoothFont& font,
 } else {
   epaper.drawRect(bx, chartBottom - barH, bw, barH, INK);
 }
-        drawText(epaper, font, h.uke, bx, chartBottom + 2, FontSize::Tiny);
+        const String label = historyLabel(h.uke);
+        const int lw = textWidth(epaper, font, label);
+        const int lx = MARGIN + i * slotW + (slotW - lw) / 2;
+        drawText(epaper, font, label, lx, chartBottom + 4, FontSize::Tiny);
       }
     }
   }
@@ -373,17 +417,15 @@ inline void renderAar(EPaper& epaper, SmoothFont& font,
   drawHeader(epaper, font, String("År: ") + "2026", data.oppdatert);
   int y = MARGIN + textHeight(epaper, font) + LINE_GAP * 3;
 
-  // Big year total.
-  font.load(FontSize::Huge);
+  // Big year total (48px bold GFX hero; digits only).
   {
     const String km = kmString(data.aar.total_km);
-    drawText(epaper, font, km, MARGIN, y, FontSize::Huge);
-    const int kmW = textWidth(epaper, font, km);
-    font.load(FontSize::Medium);
-    drawText(epaper, font, "km i år", MARGIN + kmW + 8, y + 18,
-             FontSize::Medium);
+    const int kmW = drawHero(epaper, font, km, MARGIN, y);
+    font.load(FontSize::Small);
+    drawText(epaper, font, "km i år", MARGIN + kmW + 10, y + 30,
+             FontSize::Small);
   }
-  y += 60 + LINE_GAP * 2;
+  y += 62 + LINE_GAP * 2;
   drawHairline(epaper, y);
   y += LINE_GAP * 2;
 
@@ -405,6 +447,7 @@ inline void renderAar(EPaper& epaper, SmoothFont& font,
       const int n = static_cast<int>(data.historikk.size());
       const int slotW = (config::PANEL_WIDTH - 2 * MARGIN) / n;
       const int barGap = 4;
+      font.load(FontSize::Tiny);
       for (int i = 0; i < n; ++i) {
         const dashboard::HistoryEntry& h = data.historikk[i];
         const int barH = static_cast<int>(chartH * (h.km / maxKm));
@@ -415,8 +458,10 @@ inline void renderAar(EPaper& epaper, SmoothFont& font,
 } else {
   epaper.drawRect(bx, chartBottom - barH, bw, barH, INK);
 }
-        font.load(FontSize::Tiny);
-        drawText(epaper, font, h.uke, bx, chartBottom + 2, FontSize::Tiny);
+        const String label = historyLabel(h.uke);
+        const int lw = textWidth(epaper, font, label);
+        const int lx = MARGIN + i * slotW + (slotW - lw) / 2;
+        drawText(epaper, font, label, lx, chartBottom + 4, FontSize::Tiny);
       }
     }
   }
