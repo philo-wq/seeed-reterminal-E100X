@@ -31,9 +31,15 @@ bool fetch(String& body, String& failureReason) {
   http.addHeader("Content-Type", "application/json");
 
   const int status = http.POST("{}");
-  if (status != 200) {
+  if (status != 401 && status != 403 && status != 404 && status != 200) {
     failureReason = String("HTTP ") + status;
     http.end();
+    return false;
+  }
+  if (status != 200) {
+    const String errBody = http.getString().substring(0, 200);
+    http.end();
+    failureReason = String("HTTP ") + status + ": " + errBody;
     return false;
   }
 
