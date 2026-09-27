@@ -88,7 +88,6 @@ constexpr uint32_t kInactivitySleepMs = 5UL * 60UL * 1000UL;
 constexpr int kLowBatteryThresholdPct = 5;
 constexpr uint32_t kPersistedStateMagic = 0x47414D45;
 constexpr uint16_t kPersistedStateVersion = 19;
-constexpr char kSokobanProgressKey[] = "sokoban_level";
 constexpr char kReaderCjkFont16Path[] = "/fonts/epub_cjk_16.vlw";
 constexpr char kReaderCjkFont16Name[] = "fonts/epub_cjk_16";
 constexpr char kReaderCjkFont24Path[] = "/fonts/epub_cjk_24.vlw";
