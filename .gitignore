@@ -17,6 +17,3 @@ screenshot-*.png
 !photo-viewer/include/secrets.h
 # Phase 3b: Ignore copied secrets/config from runners-journal in sticky-arcade
 sticky-arcade/src/secrets.h
-sticky-arcade/src/runners_journal_config.h
-sticky-arcade/src/system_config.h
-sticky-arcade/src/trusted_client.h
