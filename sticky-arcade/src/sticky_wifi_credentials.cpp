@@ -49,7 +49,7 @@ void load() {
 
 bool haveCredentials() {
   if (!g_loaded) load();
-  return g_ssid.length() != 0;
+  return g_ssid.length() != 0 && !g_nvsEmpty;
 }
 
 bool nvsEmpty() {
@@ -59,12 +59,12 @@ bool nvsEmpty() {
 
 const char* ssid() {
   if (!g_loaded) load();
-  return g_ssid.c_str();
+  return g_nvsEmpty ? "" : g_ssid.c_str();
 }
 
 const char* password() {
   if (!g_loaded) load();
-  return g_password.c_str();
+  return g_nvsEmpty ? "" : g_password.c_str();
 }
 
 }  // namespace sticky_wifi

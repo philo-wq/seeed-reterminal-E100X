@@ -393,7 +393,7 @@ const char* gameName(GameId game) {
     case GameId::EpubReader:
       return "EPUB Reader";
     case GameId::RunnersJournal:
-      return "Løp";
+      return "LØP";
     case GameId::Count:
       break;
   }
@@ -403,7 +403,7 @@ const char* gameName(GameId game) {
 const char* shortEnglishGameName(GameId game) {
   switch (game) {
     case GameId::RunnersJournal:
-      return "Løp";
+      return "LØP";
     default:
       return gameName(game);
   }
@@ -2178,36 +2178,40 @@ void renderDashboardScreen() {
   font.unload();
 }
 
+void renderStatusScreenAndRefresh() {
+  dashboard_render::SmoothFont font(epaper);
+  const bool smoothOk = sdCardReady && font.load(dashboard_render::FontSize::Small);
+  if (!smoothOk) font.selectGfxFallback(dashboard_render::FontSize::Small);
+  dashboard_render::renderStatus(
+      epaper, font, "Løp",
+      "Kunne ikke hente data. Sjekk Wi-Fi (velg Løp igjen for å prøve på nytt).");
+  font.unload();
+  refreshScreen("Runners Journal status");
+}
+
 void showRunnersJournal() {
   LOG.println("[runners-journal] Launching Løp...");
   currentScreen = Screen::RunnersJournal;
   runners_journal::lastActivityTime = millis();
-  
+
   // Suppress timer-wakes while in runners-journal
   runners_journal::timerWakesSuppressed = true;
-  
+
   // Fetch dashboard data if not already fetched
   if (!runners_journal::dataFetched) {
     fetchRunnersJournalData();
   }
-  
+
   if (!runners_journal::dataFetched) {
     LOG.println("[runners-journal] fetch failed; showing status");
-    dashboard_render::SmoothFont font(epaper);
-    const bool smoothOk = sdCardReady && font.load(dashboard_render::FontSize::Small);
-    if (!smoothOk) font.selectGfxFallback(dashboard_render::FontSize::Small);
-    dashboard_render::renderStatus(
-        epaper, font, "Løp",
-        "Kunne ikke hente data. Sjekk Wi-Fi (velg Løp igjen for å prøve på nytt).");
-    font.unload();
-    refreshScreen("Runners Journal status");
+    renderStatusScreenAndRefresh();
     handleRunnersJournalInput();
     return;
   }
-  
+
   renderDashboardScreen();
   refreshScreen("Runners Journal");
-  
+
   // Enter the runners-journal input loop
   handleRunnersJournalInput();
 }
@@ -2329,22 +2333,20 @@ void fetchRunnersJournalData() {
 
 void handleRunnersJournalInput() {
   while (currentScreen == Screen::RunnersJournal) {
-    runners_journal::lastActivityTime = millis();
-    
     // Check for idle timeout (4 minutes)
     if (millis() - runners_journal::lastActivityTime > 4 * 60 * 1000) {
       LOG.println("[runners-journal] Idle timeout, sleeping...");
       powerDownAndSleep(SleepScreen::Resume, -1);
       return;
     }
-    
+
     // Poll for touch/buttons
     pollTouch();
     ButtonEvent event = {};
     if (pollButtonEvent(event)) {
       handleRunnersJournalButton(event);
     }
-    
+
     // Small delay to prevent CPU overload
     delay(10);
   }
@@ -2378,8 +2380,24 @@ void handleRunnersJournalButton(const ButtonEvent& event) {
   }
   
   if (event.button->pin == board::PIN_BUTTON_0) {
-    // OK short-press: Do nothing (reserved for future use)
-    LOG.println("[runners-journal] OK short-press (ignored)");
+    if (event.heldMs >= ok_button::kDeepSleepHoldMs) {
+      // OK long-press: exit to the game selector
+      LOG.println("[runners-journal] OK long-press, exiting to selector");
+      runners_journal::timerWakesSuppressed = false;
+      currentScreen = Screen::Menu;
+      showMenuPage(MenuPage::First, true);
+      return;
+    }
+    // OK short-press: refetch dashboard data
+    LOG.println("[runners-journal] OK short-press, refetching data");
+    runners_journal::dataFetched = false;
+    fetchRunnersJournalData();
+    if (runners_journal::dataFetched) {
+      renderDashboardScreen();
+      refreshScreen("Runners Journal");
+    } else {
+      renderStatusScreenAndRefresh();
+    }
     return;
   }
 }

@@ -19,10 +19,10 @@
 
 namespace dashboard_render {
 
-constexpr uint16_t INK = 0x00;           // svart
-constexpr uint16_t PAPER = 0x01;         // hvit
-constexpr uint16_t INK_SECONDARY = 0x00; // omrisset historisk stolpe
-constexpr uint16_t INK_FAINT = 0x00;      // tynn skillelinje
+constexpr uint16_t INK = TFT_BLACK;           // svart
+constexpr uint16_t PAPER = TFT_WHITE;         // hvit
+constexpr uint16_t INK_SECONDARY = TFT_BLACK; // omrisset historisk stolpe
+constexpr uint16_t INK_FAINT = TFT_BLACK;      // tynn skillelinje
 
 constexpr int MARGIN = 16;
 constexpr int LINE_GAP = 6;
@@ -49,6 +49,7 @@ inline FontSpec fontSpec(FontSize size) {
   (void)size;  // Suppress unused parameter warning
   return {18, &FreeSansBold9pt7b};
 }
+
 
 class SmoothFont {
  public:
@@ -170,9 +171,8 @@ inline int textWidth(TFT_eSPI& epaper, SmoothFont& font, const String& text) {
 // smooth font path is active (GFX textWidth does not depend on load()).
 inline int textWidthFor(TFT_eSPI& epaper, SmoothFont& font, const String& text,
                        FontSize size) {
-  if (fontSpec(size).px == font.px()) {
-    return epaper.textWidth(text, 1);
-  }
+  (void)size;
+  if (font.loaded()) return epaper.textWidth(text, 1);
   // GFX fallback: select the font first so textWidth measures the right face.
   font.selectGfxFallback(size);
   return epaper.textWidth(text);
@@ -183,7 +183,7 @@ inline int textWidthFor(TFT_eSPI& epaper, SmoothFont& font, const String& text,
 inline void drawText(TFT_eSPI& epaper, SmoothFont& font, const String& text,
                      int left, int top, FontSize size) {
   epaper.setTextColor(INK);
-  if (font.loaded() && font.px() == fontSpec(size).px) {
+  if (font.loaded()) {
     if (drawSmoothMonochrome(epaper, text, left, top)) return;
   }
   // No smooth font for this size: ensure a GFX fallback is active.
@@ -197,7 +197,7 @@ inline void drawTextColored(TFT_eSPI& epaper, SmoothFont& font,
                             const String& text, int left, int top,
                             FontSize size, uint16_t color) {
   epaper.setTextColor(color);
-  if (font.loaded() && font.px() == fontSpec(size).px) {
+  if (font.loaded()) {
     if (drawSmoothMonochromeColored(epaper, text, left, top, color)) return;
   }
   font.selectGfxFallback(size);
@@ -560,17 +560,36 @@ template <typename EPaper>
 inline void renderStatus(EPaper& epaper, SmoothFont& font,
                          const String& title, const String& detail) {
   clearPanel(epaper);
-  int y = MARGIN + 40;
+  int y = MARGIN + 60;
   font.load(FontSize::Large);
   const int tw = textWidth(epaper, font, title);
   drawText(epaper, font, title, (config::PANEL_WIDTH - tw) / 2, y,
            FontSize::Large);
-  y += textHeight(epaper, font) + LINE_GAP * 2;
+  y += textHeight(epaper, font) + LINE_GAP * 4;
   font.load(FontSize::Small);
-  int dw = textWidth(epaper, font, detail);
-  if (dw > config::PANEL_WIDTH - 2 * MARGIN) dw = config::PANEL_WIDTH - 2 * MARGIN;
-  drawText(epaper, font, detail, (config::PANEL_WIDTH - dw) / 2, y,
-           FontSize::Small);
+  const int maxW = config::PANEL_WIDTH - 2 * MARGIN;
+  String line;
+  line.reserve(detail.length());
+  for (int ci = 0; ci < static_cast<int>(detail.length()); ++ci) {
+    line += detail[ci];
+    if (detail[ci] == ' ' || ci == static_cast<int>(detail.length()) - 1) {
+      if (textWidth(epaper, font, line) > maxW) {
+        const int lastSpace = line.lastIndexOf(' ');
+        const String toDraw =
+            lastSpace > 0 ? line.substring(0, lastSpace) : line;
+        const int dw = textWidth(epaper, font, toDraw);
+        drawText(epaper, font, toDraw, (config::PANEL_WIDTH - dw) / 2, y,
+                 FontSize::Small);
+        y += textHeight(epaper, font) + LINE_GAP;
+        line = lastSpace > 0 ? line.substring(lastSpace + 1) : "";
+      }
+    }
+  }
+  if (line.length() > 0) {
+    const int dw = textWidth(epaper, font, line);
+    drawText(epaper, font, line, (config::PANEL_WIDTH - dw) / 2, y,
+             FontSize::Small);
+  }
   font.unload();
 }
 
