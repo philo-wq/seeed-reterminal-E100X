@@ -74,9 +74,7 @@ void parseJournal(const JsonArray& arr, std::vector<JournalEntry>& out) {
 }  // namespace
 
 bool parse(const String& body, DashboardData& out) {
-  // Use a large capacity to handle the dashboard JSON
-  const size_t capacity = 16384;
-  DynamicJsonDocument doc(capacity);
+  JsonDocument doc;
   const DeserializationError err = deserializeJson(doc, body);
   if (err != DeserializationError::Ok) {
     return false;

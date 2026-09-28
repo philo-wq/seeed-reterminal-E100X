@@ -309,6 +309,44 @@ inline int drawHeroRight(TFT_eSPI& epaper, SmoothFont& font,
   return drawHero(epaper, font, text, right - w, top);
 }
 
+// Shared weekly-km bar chart for the Uke and Ar screens. `y` is the top of
+// the chart area (below the section heading); labels sit below the bars.
+template <typename EPaper>
+inline void drawHistoryChart(EPaper& epaper, SmoothFont& font,
+                             const dashboard::DashboardData& data, int y) {
+  if (!data.historikk.empty()) {
+    float maxKm = 0.0f;
+    for (const dashboard::HistoryEntry& h : data.historikk) {
+      if (h.km > maxKm) maxKm = h.km;
+    }
+    if (maxKm <= 0.0f) maxKm = 1.0f;
+    const int chartTop = y;
+    const int chartBottom = config::PANEL_HEIGHT - MARGIN - 20;
+    const int chartH = chartBottom - chartTop;
+    if (chartH > 20) {
+      const int n = static_cast<int>(data.historikk.size());
+      const int slotW = (config::PANEL_WIDTH - 2 * MARGIN) / n;
+      const int barGap = 4;
+      font.load(FontSize::Tiny);
+      for (int i = 0; i < n; ++i) {
+        const dashboard::HistoryEntry& h = data.historikk[i];
+        const int barH = static_cast<int>(chartH * (h.km / maxKm));
+        const int bx = MARGIN + i * slotW + barGap;
+        const int bw = slotW - 2 * barGap;
+        if (h.naa) {
+          epaper.fillRect(bx, chartBottom - barH, bw, barH, INK);
+        } else {
+          epaper.drawRect(bx, chartBottom - barH, bw, barH, INK);
+        }
+        const String label = historyLabel(h.uke);
+        const int lw = textWidth(epaper, font, label);
+        const int lx = MARGIN + i * slotW + (slotW - lw) / 2;
+        drawText(epaper, font, label, lx, chartBottom + 4, FontSize::Tiny);
+      }
+    }
+  }
+}
+
 // ── Screen 1: Uke ───────────────────────────────────────────────────
 // km, mål%, type-fordeling, høydemeter, total tid, mot forrige uke.
 template <typename EPaper>
@@ -374,37 +412,7 @@ inline void renderUke(EPaper& epaper, SmoothFont& font,
   font.load(FontSize::Tiny);
   drawText(epaper, font, "Historikk", MARGIN, y, FontSize::Tiny);
   y += textHeight(epaper, font) + LINE_GAP;
-  if (!data.historikk.empty()) {
-    float maxKm = 0.0f;
-    for (const dashboard::HistoryEntry& h : data.historikk) {
-      if (h.km > maxKm) maxKm = h.km;
-    }
-    if (maxKm <= 0.0f) maxKm = 1.0f;
-    const int chartTop = y;
-    const int chartBottom = config::PANEL_HEIGHT - MARGIN - 20;
-    const int chartH = chartBottom - chartTop;
-    if (chartH > 20) {
-      const int n = static_cast<int>(data.historikk.size());
-      const int slotW = (config::PANEL_WIDTH - 2 * MARGIN) / n;
-      const int barGap = 4;
-      font.load(FontSize::Tiny);
-      for (int i = 0; i < n; ++i) {
-        const dashboard::HistoryEntry& h = data.historikk[i];
-        const int barH = static_cast<int>(chartH * (h.km / maxKm));
-        const int bx = MARGIN + i * slotW + barGap;
-        const int bw = slotW - 2 * barGap;
-        if (h.naa) {
-  epaper.fillRect(bx, chartBottom - barH, bw, barH, INK);
-} else {
-  epaper.drawRect(bx, chartBottom - barH, bw, barH, INK);
-}
-        const String label = historyLabel(h.uke);
-        const int lw = textWidth(epaper, font, label);
-        const int lx = MARGIN + i * slotW + (slotW - lw) / 2;
-        drawText(epaper, font, label, lx, chartBottom + 4, FontSize::Tiny);
-      }
-    }
-  }
+  drawHistoryChart(epaper, font, data, y);
   font.unload();
 }
 
@@ -434,37 +442,7 @@ inline void renderAar(EPaper& epaper, SmoothFont& font,
   font.load(FontSize::Small);
   drawText(epaper, font, "Ukeshistorikk", MARGIN, y, FontSize::Small);
   y += textHeight(epaper, font) + LINE_GAP;
-  if (!data.historikk.empty()) {
-    float maxKm = 0.0f;
-    for (const dashboard::HistoryEntry& h : data.historikk) {
-      if (h.km > maxKm) maxKm = h.km;
-    }
-    if (maxKm <= 0.0f) maxKm = 1.0f;
-    const int chartTop = y;
-    const int chartBottom = config::PANEL_HEIGHT - MARGIN - 20;
-    const int chartH = chartBottom - chartTop;
-    if (chartH > 20) {
-      const int n = static_cast<int>(data.historikk.size());
-      const int slotW = (config::PANEL_WIDTH - 2 * MARGIN) / n;
-      const int barGap = 4;
-      font.load(FontSize::Tiny);
-      for (int i = 0; i < n; ++i) {
-        const dashboard::HistoryEntry& h = data.historikk[i];
-        const int barH = static_cast<int>(chartH * (h.km / maxKm));
-        const int bx = MARGIN + i * slotW + barGap;
-        const int bw = slotW - 2 * barGap;
-        if (h.naa) {
-  epaper.fillRect(bx, chartBottom - barH, bw, barH, INK);
-} else {
-  epaper.drawRect(bx, chartBottom - barH, bw, barH, INK);
-}
-        const String label = historyLabel(h.uke);
-        const int lw = textWidth(epaper, font, label);
-        const int lx = MARGIN + i * slotW + (slotW - lw) / 2;
-        drawText(epaper, font, label, lx, chartBottom + 4, FontSize::Tiny);
-      }
-    }
-  }
+  drawHistoryChart(epaper, font, data, y);
   font.unload();
 }
 
