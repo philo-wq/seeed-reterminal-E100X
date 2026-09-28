@@ -313,5 +313,9 @@ void runners_journal_run() {
   deepSleep(data.neste_oppvakning_s);
 }
 
+// Standalone entry point for the reterminal_e1005 environment: the sketch
+// boots straight into the dashboard, which deep-sleeps instead of returning.
+void setup() { runners_journal_run(); }
+
 void loop() {
 }

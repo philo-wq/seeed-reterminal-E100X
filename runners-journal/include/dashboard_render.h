@@ -88,6 +88,17 @@ class SmoothFont {
 
   bool loaded() const { return currentPx_ != 0; }
   int px() const { return currentPx_; }
+  // Pre-validate that the SD font file exists before rendering so the
+  // caller can log a clear error instead of failing mid-render. Does not
+  // load the font; load() does the actual work lazily on first use.
+  bool preloadAll() {
+    const String path = String("/fonts/sans_bold_18.vlw");
+    if (!SD.exists(path)) {
+      LOG.println("[font] ERROR: sans_bold_18.vlw NOT FOUND");
+      return false;
+    }
+    return true;
+  }
 
   TFT_eSPI& display() { return display_; }
 
