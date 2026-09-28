@@ -141,7 +141,6 @@ inline bool drawSmoothMonochromeColored(TFT_eSPI& epaper, const String& text,
   }
   constexpr uint8_t kSolidAlphaThreshold = 64;
   uint8_t row[256];
-  epaper.startWrite();
   int cursorX = left;
   const int cursorY = top;
   uint16_t offset = 0;
@@ -167,7 +166,6 @@ inline bool drawSmoothMonochromeColored(TFT_eSPI& epaper, const String& text,
     }
     for (uint8_t y = 0; y < height; ++y) {
       if (epaper.fontFile.read(row, width) != width) {
-        epaper.endWrite();
         return false;
       }
       // Collapse consecutive solid pixels into a single hline write; on
@@ -189,7 +187,6 @@ inline bool drawSmoothMonochromeColored(TFT_eSPI& epaper, const String& text,
     }
     cursorX += epaper.gxAdvance[glyph];
   }
-  epaper.endWrite();
   return true;
 }
 
@@ -372,6 +369,7 @@ template <typename EPaper>
 inline void renderUke(EPaper& epaper, SmoothFont& font,
                       const dashboard::DashboardData& data) {
   clearPanel(epaper);
+  LOG.println("[rj] breadcrumb: header");
   drawHeader(epaper, font, data.uke.merkelapp, data.oppdatert);
   int y = MARGIN + textHeight(epaper, font) + LINE_GAP * 3;
 
@@ -392,12 +390,14 @@ inline void renderUke(EPaper& epaper, SmoothFont& font,
     drawText(epaper, font, goal,
              config::PANEL_WIDTH - MARGIN - gw, y + 56, FontSize::Small);
   }
+  LOG.println("[rj] breadcrumb: hero done");
   y += 68 + LINE_GAP * 2;
   drawHairline(epaper, y);
   y += LINE_GAP * 2;
 
   // Stats row: total tid + elevation + mot forrige.
   font.load(FontSize::Small);
+  LOG.println("[rj] breadcrumb: stats");
   drawText(epaper, font, "Tid", MARGIN, y, FontSize::Small);
   drawRight(epaper, font, data.uke.total_tid, y, FontSize::Small);
   y += textHeight(epaper, font) + LINE_GAP;
@@ -412,6 +412,7 @@ inline void renderUke(EPaper& epaper, SmoothFont& font,
 
   // Type breakdown.
   font.load(FontSize::Small);
+  LOG.println("[rj] breadcrumb: types");
   drawText(epaper, font, "Typer", MARGIN, y, FontSize::Small);
   y += textHeight(epaper, font) + LINE_GAP;
   for (const dashboard::TypeEntry& t : data.typer) {
@@ -459,6 +460,7 @@ inline void renderAar(EPaper& epaper, SmoothFont& font,
   // History bar chart (weekly km) — taller on this screen since there
   // is more vertical space below the header.
   font.load(FontSize::Small);
+  LOG.println("[rj] breadcrumb: chart");
   drawText(epaper, font, "Ukeshistorikk", MARGIN, y, FontSize::Small);
   y += textHeight(epaper, font) + LINE_GAP;
   drawHistoryChart(epaper, font, data, y);
