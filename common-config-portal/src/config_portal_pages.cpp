@@ -195,7 +195,7 @@ function tzToggle(sel){const t=tzCustomInput(sel);if(!t)return;t.style.display=(
 function valOf(el,type){if(type==='bool')return el.checked?'true':'false';if(type==='timezone'){if(el.value==='__custom__'){const t=tzCustomInput(el);return t?t.value:'';}return el.value;}return el.value;}
 function setVal(el,type,v){if(type==='bool'){el.checked=(v==='true'||v==='1'||v==='on'||v==='yes');return;}if(type==='timezone'){let matched=false;for(const opt of el.options){if(opt.value===v){el.value=v;matched=true;break;}}if(!matched){el.value='__custom__';}const t=tzCustomInput(el);if(t){t.value=matched?'':(v||'');t.style.display=(el.value==='__custom__')?'':'none';}return;}if((type==='secret'||type==='password')&&v==='__saved__')el.placeholder='●●●● saved';el.value=v||'';}
 async function loadValues(url){const r=await fetch(url,{cache:'no-store'});const j=await r.json();for(const [k,v] of Object.entries(j.values||{})){const el=document.querySelector('[name="'+CSS.escape(k)+'"]');if(el)setVal(el,el.closest('.field')?.dataset.type||'string',v);}}
-async function postForm(url){const data={};document.querySelectorAll('[name]').forEach(el=>{data[el.name]=valOf(el,el.closest('.field')?.dataset.type||'string')});const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const j=await r.json();if(!r.ok||!j.ok)throw new Error(j.error||'Save failed');return j;}
+async function postForm(url){const data={};document.querySelectorAll('[name]').forEach(el=>{data[el.name]=valOf(el,el.closest('.field')?.dataset.type||'string')});const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','X-Portal-Token':PORTAL_TOKEN},body:JSON.stringify(data)});const j=await r.json();if(!r.ok||!j.ok)throw new Error(j.error||'Save failed');return j;}
 )JS";
 
 }  // namespace
@@ -220,6 +220,9 @@ String renderWifiPage(const Config& cfg, const Schema& wifi, const Schema* appSc
     }
   }
   html += F("<button type=\"submit\">Save Wi-Fi</button><button class=\"secondary\" type=\"button\" id=\"rebootBtn\">Reboot to viewer</button><span id=\"msg\" class=\"msg\"></span></form></section><script>");
+  html += F("const PORTAL_TOKEN='");
+  html += currentCsrfToken();
+  html += F("';");
   html += FPSTR(kSharedScript);
   html += F(
       "loadValues('/wifi.json');"
@@ -242,7 +245,7 @@ String renderWifiPage(const Config& cfg, const Schema& wifi, const Schema* appSc
       "document.getElementById('scanBtn').onclick=doScan;"
       "doScan();"
       "document.getElementById('wifiForm').onsubmit=async e=>{e.preventDefault();let m=document.getElementById('msg');try{await postForm('/wifi.json');m.className='ok';m.textContent='Saved.';}catch(x){m.className='err';m.textContent=x.message}};"
-      "document.getElementById('rebootBtn').onclick=async()=>{let m=document.getElementById('msg');m.className='';m.textContent='Rebooting\u2026';try{await fetch('/reboot',{method:'POST'});}catch(e){}};"
+      "document.getElementById('rebootBtn').onclick=async()=>{let m=document.getElementById('msg');m.className='';m.textContent='Rebooting\u2026';try{await fetch('/reboot',{method:'POST',headers:{'X-Portal-Token':PORTAL_TOKEN}});}catch(e){}};"
       "</script></main></body></html>");
   return html;
 }
@@ -261,8 +264,11 @@ String renderSettingsPage(const Config& cfg, const Schema& appSchema, const Sche
     html += F("</fieldset>");
   }
   html += F("<button type=\"submit\">Save settings</button><button class=\"secondary\" type=\"button\" id=\"rebootBtn\">Reboot to viewer</button><span id=\"msg\" class=\"msg\"></span></form><script>");
+  html += F("const PORTAL_TOKEN='");
+  html += currentCsrfToken();
+  html += F("';");
   html += FPSTR(kSharedScript);
-  html += F("loadValues('/settings.json');document.getElementById('settingsForm').onsubmit=async e=>{e.preventDefault();let m=document.getElementById('msg');try{await postForm('/settings.json');m.className='ok';m.textContent='Saved.'}catch(x){m.className='err';m.textContent=x.message}};document.getElementById('rebootBtn').onclick=async()=>{await fetch('/reboot',{method:'POST'});document.getElementById('msg').textContent='Rebooting…';setTimeout(()=>location.reload(),2000)};</script></main></body></html>");
+  html += F("loadValues('/settings.json');document.getElementById('settingsForm').onsubmit=async e=>{e.preventDefault();let m=document.getElementById('msg');try{await postForm('/settings.json');m.className='ok';m.textContent='Saved.'}catch(x){m.className='err';m.textContent=x.message}};document.getElementById('rebootBtn').onclick=async()=>{await fetch('/reboot',{method:'POST',headers:{'X-Portal-Token':PORTAL_TOKEN}});document.getElementById('msg').textContent='Rebooting…';setTimeout(()=>location.reload(),2000)};</script></main></body></html>");
   return html;
 }
 
@@ -316,23 +322,24 @@ String renderResetPage(const Config& cfg, bool hasSettings) {
               "style=\"background:#b91c1c\">Erase SD card</button>"
               "<span id=\"fmtMsg\" class=\"msg\"></span></section>");
   }
-  html += F("<script>"
-            "let btn=document.getElementById('resetBtn');"
+  html += F("<script>const PORTAL_TOKEN='");
+  html += currentCsrfToken();
+  html += F("';let btn=document.getElementById('resetBtn');"
             "document.getElementById('confirmChk').onchange=e=>{btn.disabled=!e.target.checked;};"
             "btn.onclick=async()=>{let m=document.getElementById('msg');m.className='';"
             "m.textContent='Wiping saved config\u2026';btn.disabled=true;"
-            "try{let r=await fetch('/reset.json',{method:'POST'});let j=await r.json();"
+            "try{let r=await fetch('/reset.json',{method:'POST',headers:{'X-Portal-Token':PORTAL_TOKEN}});let j=await r.json();"
             "if(!r.ok||!j.ok)throw new Error(j.error||'reset failed');"
             "m.className='ok';m.textContent='Done. Rebooting\u2026';"
             "}catch(x){m.className='err';m.textContent=x.message;btn.disabled=false;}};"
-            "document.getElementById('rebootBtn').onclick=async()=>{let m=document.getElementById('msg');m.className='';m.textContent='Rebooting\u2026';try{await fetch('/reboot',{method:'POST'});}catch(e){}};");
+            "document.getElementById('rebootBtn').onclick=async()=>{let m=document.getElementById('msg');m.className='';m.textContent='Rebooting\u2026';try{await fetch('/reboot',{method:'POST',headers:{'X-Portal-Token':PORTAL_TOKEN}});}catch(e){}};");
   if (cfg.sdFormat) {
     html += F("let fb=document.getElementById('fmtBtn');"
               "let fi=document.getElementById('fmtConfirm');"
               "fi.oninput=()=>{fb.disabled=fi.value.trim()!=='FORMAT';};"
               "fb.onclick=async()=>{let m=document.getElementById('fmtMsg');m.className='';"
               "m.textContent='Formatting SD card\u2026 this may take up to a minute.';fb.disabled=true;"
-              "try{let r=await fetch('/format-sd.json',{method:'POST'});let j=await r.json();"
+              "try{let r=await fetch('/format-sd.json',{method:'POST',headers:{'X-Portal-Token':PORTAL_TOKEN}});let j=await r.json();"
               "if(!r.ok||!j.ok)throw new Error(j.error||'format failed');"
               "m.className='ok';m.textContent='SD card reformatted.';fi.value='';"
               "}catch(x){m.className='err';m.textContent=x.message;fb.disabled=fi.value.trim()!=='FORMAT';}};");

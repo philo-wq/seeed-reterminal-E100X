@@ -8,6 +8,7 @@
 #include <WebServer.h>
 #include <WiFi.h>
 #include <esp_mac.h>
+#include <esp_system.h>
 
 #include <vector>
 
@@ -32,6 +33,7 @@ storage::PrefsStorage g_wifiStorage;
 storage::PrefsStorage g_appStorage;
 uint32_t g_scanMs = 0;
 String g_scanJson = "[]";
+String g_csrfToken;
 
 String jsonEscape(const String& in) {
   String out;
@@ -98,6 +100,21 @@ void sendJson(int code, const String& body) {
 void sendHtml(int code, const String& body) {
   g_server->send(code, "text/html; charset=utf-8", body);
   logAccess(code);
+}
+
+// Mutating endpoints (save, reboot, reset, SD format) require the per-boot
+// token so a malicious page in a browser on the same network cannot drive
+// the portal: browsers forbid setting custom headers cross-origin without
+// a CORS preflight, which the portal never answers.
+bool authorizedMutation() {
+  if (g_csrfToken.length() == 0) return true;  // portal not running
+  if (g_server->hasHeader("X-Portal-Token") &&
+      g_server->header("X-Portal-Token") == g_csrfToken)
+    return true;
+  if (g_server->hasArg("token") && g_server->arg("token") == g_csrfToken)
+    return true;
+  sendJson(403, json::errorJson("missing or invalid portal token"));
+  return false;
 }
 
 void handleValues(const Schema& schema, storage::Storage& store) {
@@ -378,23 +395,32 @@ bool begin(const Config& cfg) {
                (unsigned)((ip >> 24) & 0xFF));
   }, ARDUINO_EVENT_WIFI_AP_STAIPASSIGNED);
 
+  g_csrfToken = portal_ap_password::randomEasyPassword(16, []() { return esp_random(); });
+  if (g_csrfToken.length() == 0) {
+    LOG.println("[cfg-portal] warning: could not generate portal token; "
+                "mutating endpoints accept requests without a token");
+  }
   if (g_server) { g_server->stop(); delete g_server; }
   g_server = new WebServer(cfg.httpPort);
+  static const char* kCollectedHeaders[] = {"X-Portal-Token", "Origin", "Referer"};
+  g_server->collectHeaders(kCollectedHeaders, 3);
   g_server->on("/", redirectRoot);
   g_server->on("/wifi", []() { sendHtml(200, renderWifiPage(g_config, *g_config.wifiSchema, g_config.appSchema)); });
   g_server->on("/wifi.json", HTTP_GET, handleWifiValues);
-  g_server->on("/wifi.json", HTTP_POST, handleWifiSave);
+  g_server->on("/wifi.json", HTTP_POST, []() { if (!authorizedMutation()) return; handleWifiSave(); });
   g_server->on("/scan.json", handleScan);
   g_server->on("/settings", []() { if (!g_config.appSchema) handleNotFound(); else sendHtml(200, renderSettingsPage(g_config, *g_config.appSchema, *g_config.wifiSchema)); });
   g_server->on("/settings.json", HTTP_GET, []() { if (!g_config.appSchema) handleNotFound(); else handleValues(*g_config.appSchema, g_appStorage); });
   g_server->on("/settings.json", HTTP_POST, []() {
+    if (!authorizedMutation()) return;
     if (!g_config.appSchema) { handleNotFound(); return; }
     handleSave(*g_config.appSchema, g_appStorage, false, g_config.onAppSaved);
   });
-  g_server->on("/reboot", HTTP_POST, []() { g_rebootRequested = true; sendJson(200, "{\"ok\":true}"); });
+  g_server->on("/reboot", HTTP_POST, []() { if (!authorizedMutation()) return; g_rebootRequested = true; sendJson(200, "{\"ok\":true}"); });
   g_server->on("/reset", []() { sendHtml(200, renderResetPage(g_config, g_config.appSchema != nullptr)); });
-  g_server->on("/reset.json", HTTP_POST, handleReset);
+  g_server->on("/reset.json", HTTP_POST, []() { if (!authorizedMutation()) return; handleReset(); });
   g_server->on("/format-sd.json", HTTP_POST, []() {
+    if (!authorizedMutation()) return;
     if (!g_config.sdFormat) { handleNotFound(); return; }
     LOG.println("[cfg-portal] SD format requested via /format-sd.json");
     String err;
@@ -437,6 +463,7 @@ void loop() {
 
 const String& currentSsid() { return g_ssid; }
 const String& currentApPassword() { return g_apPassword; }
+const String& currentCsrfToken() { return g_csrfToken; }
 IPAddress currentIp() { return g_running ? g_config.apIp : IPAddress(); }
 uint16_t currentPort() { return g_config.httpPort; }
 bool rebootRequested() { return g_rebootRequested; }

@@ -7,7 +7,9 @@
 #include <WiFiClientSecure.h>
 
 #include "app_logger.h"
+#include "local_time.h"
 #include "sd_card.h"
+#include "trusted_client.h"
 
 namespace net_http {
 namespace {
@@ -25,8 +27,8 @@ inline bool aborted(ShouldAbortFn abort) {
 bool getString(const String& url, String& body, uint32_t timeoutMs,
                ShouldAbortFn shouldAbort, BoundTimeoutFn boundTimeout) {
   if (aborted(shouldAbort)) return false;
-  WiFiClientSecure client;
-  client.setInsecure();
+  tls_client::DefaultRootClient client;
+  if (!local_time::clockIsValid()) client.setInsecure();
   client.setTimeout(applyBound(timeoutMs, boundTimeout));
   HTTPClient http;
   http.setConnectTimeout(applyBound(timeoutMs, boundTimeout));
@@ -55,8 +57,8 @@ bool downloadToSd(const String& url, const String& destination,
                   size_t maxBytes, ShouldAbortFn shouldAbort,
                   BoundTimeoutFn boundTimeout) {
   if (aborted(shouldAbort)) return false;
-  WiFiClientSecure client;
-  client.setInsecure();
+  tls_client::DefaultRootClient client;
+  if (!local_time::clockIsValid()) client.setInsecure();
   client.setTimeout(applyBound(idleTimeoutMs, boundTimeout));
   HTTPClient http;
   http.setConnectTimeout(applyBound(connectTimeoutMs, boundTimeout));
@@ -170,8 +172,8 @@ bool downloadToMemory(const String& url, uint8_t*& output,
   outputLength = 0;
   if (aborted(shouldAbort)) return false;
 
-  WiFiClientSecure client;
-  client.setInsecure();
+  tls_client::DefaultRootClient client;
+  if (!local_time::clockIsValid()) client.setInsecure();
   client.setTimeout(applyBound(idleTimeoutMs, boundTimeout));
   HTTPClient http;
   http.setConnectTimeout(applyBound(connectTimeoutMs, boundTimeout));

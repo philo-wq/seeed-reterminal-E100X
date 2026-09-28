@@ -136,6 +136,9 @@ String renderHeaderHtml(const Config& cfg, const char* activeKey);
 
 const String& currentSsid();
 const String& currentApPassword();  // empty when the AP is open
+// Per-boot token required on mutating portal POSTs (X-Portal-Token header).
+// Empty outside begin()/end() or if generation failed.
+const String& currentCsrfToken();
 IPAddress currentIp();
 uint16_t currentPort();
 bool rebootRequested();
