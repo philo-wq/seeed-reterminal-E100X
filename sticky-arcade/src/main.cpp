@@ -292,6 +292,9 @@ namespace runners_journal {
   bool dataFetched = false;
   uint32_t lastActivityTime = 0;
   bool timerWakesSuppressed = false;
+  // True when the last fetch failed and the status screen is showing; lets
+  // the OK handler offer the Wi-Fi portal instead of just refetching.
+  bool showingFetchStatus = false;
 }
 
 bool touchReady = false;
@@ -2184,7 +2187,8 @@ void renderStatusScreenAndRefresh() {
   if (!smoothOk) font.selectGfxFallback(dashboard_render::FontSize::Small);
   dashboard_render::renderStatus(
       epaper, font, "Løp",
-      "Kunne ikke hente data. Sjekk Wi-Fi (velg Løp igjen for å prøve på nytt).");
+      "Kunne ikke hente data. OK-knappen = prøv igjen. Hold OK inne = "
+      "Wi-Fi-innstillinger (QR).");
   font.unload();
   refreshScreen("Runners Journal status");
 }
@@ -2204,11 +2208,13 @@ void showRunnersJournal() {
 
   if (!runners_journal::dataFetched) {
     LOG.println("[runners-journal] fetch failed; showing status");
+    runners_journal::showingFetchStatus = true;
     renderStatusScreenAndRefresh();
     handleRunnersJournalInput();
     return;
   }
 
+  runners_journal::showingFetchStatus = false;
   renderDashboardScreen();
   refreshScreen("Runners Journal");
 
@@ -2381,6 +2387,15 @@ void handleRunnersJournalButton(const ButtonEvent& event) {
   
   if (event.button->pin == board::PIN_BUTTON_0) {
     if (event.heldMs >= ok_button::kDeepSleepHoldMs) {
+      if (runners_journal::showingFetchStatus) {
+        // OK long-press on the fetch-failed screen: reopen the Wi-Fi
+        // portal so stored credentials can be replaced without a PC.
+        LOG.println("[runners-journal] OK long-press on status; opening portal");
+        runners_journal::showingFetchStatus = false;
+        runners_journal::timerWakesSuppressed = false;
+        runConfigPortalAndReboot();
+        return;
+      }
       // OK long-press: exit to the game selector
       LOG.println("[runners-journal] OK long-press, exiting to selector");
       runners_journal::timerWakesSuppressed = false;
@@ -2393,9 +2408,11 @@ void handleRunnersJournalButton(const ButtonEvent& event) {
     runners_journal::dataFetched = false;
     fetchRunnersJournalData();
     if (runners_journal::dataFetched) {
+      runners_journal::showingFetchStatus = false;
       renderDashboardScreen();
       refreshScreen("Runners Journal");
     } else {
+      runners_journal::showingFetchStatus = true;
       renderStatusScreenAndRefresh();
     }
     return;
