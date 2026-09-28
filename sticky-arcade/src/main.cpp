@@ -51,6 +51,9 @@
 #include "sd_ota.h"
 #include "sd_readonly_browser.h"
 #include "text_render.h"
+#include "local_time.h"
+#include "ntp_sync.h"
+#include "rtc_sync.h"
 #include "usb_screen_capture.h"
 
 // Runners-Journal includes
@@ -2320,6 +2323,15 @@ void fetchRunnersJournalData() {
   }
   
   LOG.printf("[runners-journal] WiFi connected, IP %s\n", WiFi.localIP().toString().c_str());
+  // Sync NTP once per boot while the radio is already up; persists to the
+  // PCF8563 so the clock survives the next deep sleep. Skipped whenever the
+  // clock is already valid (RTC restore or a previous sync this boot).
+  if (!local_time::clockIsValid()) {
+    LOG.println("[ntp] clock invalid; synchronizing from NTP");
+    ntp::synchronizeAndPersist(config::TIMEZONE, "pool.ntp.org", "time.cloudflare.com",
+                               config::NTP_DHCP_TIMEOUT_MS, config::NTP_SYNC_TIMEOUT_MS,
+                               nullptr);
+  }
   
   // Fetch dashboard data
   String body;
@@ -3039,6 +3051,9 @@ void setup() {
   }
   const bool resumed = restoreResumeState();
   LOG.printf("[games] boot mode: %s\n", resumed ? "resume" : "cold");
+  // Restore the wall clock from the PCF8563 so timestamps (and TLS
+  // certificate validation) work before the first NTP sync.
+  rtc_sync::restoreSystemClock();
 
   pinMode(board::PIN_SD_CS, OUTPUT);
   digitalWrite(board::PIN_SD_CS, HIGH);
