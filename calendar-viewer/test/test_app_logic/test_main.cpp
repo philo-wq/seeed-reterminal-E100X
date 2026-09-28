@@ -322,6 +322,17 @@ void test_initial_connection_status_is_limited_to_configured_cold_boots() {
       calendar_logic::shouldShowInitialConnectionStatus(false, false));
 }
 
+void test_provider_refresh_status_is_limited_to_interactive_devices() {
+  TEST_ASSERT_TRUE(calendar_logic::shouldShowProviderRefreshStatus(
+      true, true, false));
+  TEST_ASSERT_TRUE(calendar_logic::shouldShowProviderRefreshStatus(
+      true, false, true));
+  TEST_ASSERT_FALSE(calendar_logic::shouldShowProviderRefreshStatus(
+      true, false, false));
+  TEST_ASSERT_FALSE(calendar_logic::shouldShowProviderRefreshStatus(
+      false, true, true));
+}
+
 void test_post_sync_quiet_hours_do_not_leave_cold_boot_status_visible() {
   TEST_ASSERT_FALSE(
       calendar_logic::suppressPostSyncForQuietHours(true, false, true));
@@ -1169,6 +1180,24 @@ void test_grid_today_fill_and_week_label_geometry() {
       137, calendar_render_geometry::gridDayLabelTop(132, 5, 3, true));
 }
 
+void test_month_grid_shows_both_titles_when_exactly_two_events_fit_compactly() {
+  calendar_render_geometry::GridEventLayout layout =
+      calendar_render_geometry::gridEventLayout(1, 60, 31, 26);
+  TEST_ASSERT_EQUAL_INT(31, layout.lineHeight);
+  TEST_ASSERT_EQUAL_INT(1, layout.eventCapacity);
+  TEST_ASSERT_FALSE(layout.compact);
+
+  layout = calendar_render_geometry::gridEventLayout(2, 60, 31, 26);
+  TEST_ASSERT_EQUAL_INT(30, layout.lineHeight);
+  TEST_ASSERT_EQUAL_INT(2, layout.eventCapacity);
+  TEST_ASSERT_TRUE(layout.compact);
+
+  layout = calendar_render_geometry::gridEventLayout(3, 60, 31, 26);
+  TEST_ASSERT_EQUAL_INT(31, layout.lineHeight);
+  TEST_ASSERT_EQUAL_INT(1, layout.eventCapacity);
+  TEST_ASSERT_FALSE(layout.compact);
+}
+
 void test_e1004_screenshot_rotation_maps_the_full_landscape_frame() {
   screenshot::PixelCoordinate pixel =
       screenshot::nativePixelCoordinate(1, 1600, 1200, 0, 0);
@@ -1444,6 +1473,8 @@ int main(int, char**) {
   RUN_TEST(
       test_initial_connection_status_is_limited_to_configured_cold_boots);
   RUN_TEST(
+      test_provider_refresh_status_is_limited_to_interactive_devices);
+  RUN_TEST(
       test_post_sync_quiet_hours_do_not_leave_cold_boot_status_visible);
   RUN_TEST(test_display_windows_respect_week_start_and_month_grid);
   RUN_TEST(test_ical_parser_reads_timed_all_day_folded_text_and_colors);
@@ -1482,6 +1513,8 @@ int main(int, char**) {
   RUN_TEST(test_calendar_frame_refresh_decision_covers_each_trigger);
   RUN_TEST(test_header_icon_and_title_are_centered_as_one_group);
   RUN_TEST(test_grid_today_fill_and_week_label_geometry);
+  RUN_TEST(
+      test_month_grid_shows_both_titles_when_exactly_two_events_fit_compactly);
   RUN_TEST(test_e1004_screenshot_rotation_maps_the_full_landscape_frame);
   RUN_TEST(test_e1005_portrait_layout_and_screenshot_cover_the_panel);
   RUN_TEST(test_calendar_latin_font_decodes_supported_utf8);
