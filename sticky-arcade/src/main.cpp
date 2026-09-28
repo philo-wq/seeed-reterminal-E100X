@@ -595,6 +595,10 @@ bool configureLightSleepWake() {
   return configured;
 }
 
+// True until a successful light sleep resets it; keeps the serial log
+// readable when ESP_ERR_SLEEP_REJECT fires in fast bursts.
+bool g_lightSleepDeferredLogged = false;
+
 void idleInLightSleep() {
   if (!lightSleepReady) {
     delay(5);
@@ -640,6 +644,8 @@ void idleInLightSleep() {
     } else if (cause == ESP_SLEEP_WAKEUP_TIMER) {
       wakeName = "timer";
     }
+    // A successful sleep ends any deferral burst; allow one notice next time.
+    g_lightSleepDeferredLogged = false;
     LOG.printf("[games] exited light sleep (wake=%s)\n", wakeName);
 #if USB_SCREEN_CAPTURE_ENABLED
     if (cause == ESP_SLEEP_WAKEUP_UART) {
@@ -650,8 +656,14 @@ void idleInLightSleep() {
 #endif
   } else if (sleepResult == ESP_ERR_SLEEP_REJECT ||
              sleepResult == ESP_ERR_SLEEP_TOO_SHORT_SLEEP_DURATION) {
-    LOG.printf("[games] light sleep deferred: %s\n",
-               esp_err_to_name(sleepResult));
+    // The flash/PSRAM power domains reject sleep while a transaction is
+    // still settling, so this fires in bursts. Log the first deferral and
+    // stay quiet until a successful sleep resets the flag.
+    if (!g_lightSleepDeferredLogged) {
+      g_lightSleepDeferredLogged = true;
+      LOG.printf("[games] light sleep deferred: %s\n",
+                 esp_err_to_name(sleepResult));
+    }
     delay(10);
   } else {
     LOG.printf("[games] light sleep failed: %s\n",
@@ -2353,8 +2365,9 @@ void handleRunnersJournalInput() {
       handleRunnersJournalButton(event);
     }
 
-    // Small delay to prevent CPU overload
-    delay(10);
+    // Buttons are polled; 25 ms is far below the panel's multi-second
+    // refresh latency but quarters the busy-loop wakeups.
+    delay(25);
   }
 }
 

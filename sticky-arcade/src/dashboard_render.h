@@ -27,7 +27,10 @@ constexpr uint16_t INK_FAINT = TFT_BLACK;      // tynn skillelinje
 constexpr int MARGIN = 16;
 constexpr int LINE_GAP = 6;
 
-enum class FontSize { Tiny, Small, Medium, Large, Huge };
+// Text sizes for the SD smooth-font path. Medium/Large/Huge tiers were
+// removed by the single-font performance policy; large hero numerals go
+// through the flash-resident GFX font instead (see drawHero).
+enum class FontSize { Tiny, Small };
 
 enum class Screen { Uke, Aar, Siste, Journal };
 
@@ -138,6 +141,7 @@ inline bool drawSmoothMonochromeColored(TFT_eSPI& epaper, const String& text,
   }
   constexpr uint8_t kSolidAlphaThreshold = 64;
   uint8_t row[256];
+  epaper.startWrite();
   int cursorX = left;
   const int cursorY = top;
   uint16_t offset = 0;
@@ -162,15 +166,30 @@ inline bool drawSmoothMonochromeColored(TFT_eSPI& epaper, const String& text,
       return false;
     }
     for (uint8_t y = 0; y < height; ++y) {
-      if (epaper.fontFile.read(row, width) != width) return false;
-      for (uint8_t x = 0; x < width; ++x) {
-        if (row[x] >= kSolidAlphaThreshold) {
-          epaper.drawPixel(glyphLeft + x, glyphTop + y, color);
+      if (epaper.fontFile.read(row, width) != width) {
+        epaper.endWrite();
+        return false;
+      }
+      // Collapse consecutive solid pixels into a single hline write; on
+      // the one-bit panel this drops most of the per-pixel SPI overhead.
+      uint8_t runStart = 0;
+      while (runStart < width) {
+        if (row[runStart] < kSolidAlphaThreshold) {
+          ++runStart;
+          continue;
         }
+        uint8_t runEnd = runStart;
+        while (runEnd < width && row[runEnd] >= kSolidAlphaThreshold) {
+          ++runEnd;
+        }
+        epaper.drawFastHLine(glyphLeft + runStart, glyphTop + y,
+                             runEnd - runStart, color);
+        runStart = runEnd;
       }
     }
     cursorX += epaper.gxAdvance[glyph];
   }
+  epaper.endWrite();
   return true;
 }
 
@@ -489,11 +508,11 @@ inline void renderSiste(EPaper& epaper, SmoothFont& font,
   }
 
   if (data.siste_lop.empty()) {
-    font.load(FontSize::Medium);
+    font.load(FontSize::Small);
     const String msg = "Ingen løp ennå";
     const int w = textWidth(epaper, font, msg);
     drawText(epaper, font, msg,
-             (config::PANEL_WIDTH - w) / 2, y + 40, FontSize::Medium);
+             (config::PANEL_WIDTH - w) / 2, y + 40, FontSize::Small);
   }
   font.unload();
 }
@@ -584,10 +603,10 @@ inline void renderStatus(EPaper& epaper, SmoothFont& font,
                          const String& title, const String& detail) {
   clearPanel(epaper);
   int y = MARGIN + 60;
-  font.load(FontSize::Large);
+  font.load(FontSize::Small);
   const int tw = textWidth(epaper, font, title);
   drawText(epaper, font, title, (config::PANEL_WIDTH - tw) / 2, y,
-           FontSize::Large);
+           FontSize::Small);
   y += textHeight(epaper, font) + LINE_GAP * 4;
   font.load(FontSize::Small);
   const int maxW = config::PANEL_WIDTH - 2 * MARGIN;
