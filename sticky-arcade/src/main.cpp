@@ -297,6 +297,7 @@ namespace runners_journal {
   uint32_t lastActivityTime = 0;
   bool timerWakesSuppressed = false;
   String lastWifiFailure;
+  String lastFetchFailure;
   // True when the last fetch failed and the status screen is showing; lets
   // the OK handler offer the Wi-Fi portal instead of just refetching.
   bool showingFetchStatus = false;
@@ -2212,6 +2213,10 @@ void renderStatusScreenAndRefresh() {
       "Hold OK inne = Wi-Fi-innstillinger.";
   if (runners_journal::lastWifiFailure.length() > 0) {
     detail = "Wi-Fi: " + runners_journal::lastWifiFailure +
+        ". OK = prøv igjen. OPP/NED = hovedmeny. "
+        "Hold OK inne = Wi-Fi-innstillinger.";
+  } else if (runners_journal::lastFetchFailure.length() > 0) {
+    detail = "Henting: " + runners_journal::lastFetchFailure +
         ". OK = prøv igjen. OPP/NED = hovedmeny. "
         "Hold OK inne = Wi-Fi-innstillinger.";
   }
