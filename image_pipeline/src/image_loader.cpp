@@ -408,7 +408,8 @@ static const char* jpeg_marker_name(uint8_t m) {
   }
 }
 
-static bool jpeg_decode_rgb(const uint8_t* data, size_t len, JpegRgb* out) {
+static bool jpeg_decode_rgb(const uint8_t* data, size_t len, JpegRgb* out,
+                                int target_w = 0, int target_h = 0) {
   if (!data || !len || !out) {
     Serial1.println("[jpg]   bad args to decoder");
     return false;
@@ -484,9 +485,25 @@ scan:
     free(j); return false;
   }
 
-  size_t rgb_sz = (size_t)j->width * j->height * 3;
+  // Decode-to-target: when the caller gives a target size, allocate only the
+  // target buffer and scale each decoded MCU pixel into it (nearest-neighbor).
+  // This keeps peak memory at target*3 instead of source*3, which matters
+  // when a 1400x2100 cover must fit beside everything else in PSRAM.
+  int out_w = (int)j->width, out_h = (int)j->height;
+  if (target_w > 0 && target_h > 0 &&
+      ((size_t)j->width * j->height > (size_t)target_w * target_h)) {
+    // Aspect-preserving fit inside the target bounds.
+    const float fit = (float)target_w / (int)j->width < (float)target_h / (int)j->height
+                          ? (float)target_w / (int)j->width
+                          : (float)target_h / (int)j->height;
+    out_w = (int)((int)j->width * fit);
+    out_h = (int)((int)j->height * fit);
+    if (out_w < 1) out_w = 1;
+    if (out_h < 1) out_h = 1;
+  }
+  size_t rgb_sz = (size_t)out_w * out_h * 3;
   Serial1.printf("[jpg]   allocating RGB888 buffer: %lu kB (%dx%d x3)\n",
-                 (unsigned long)(rgb_sz / 1024), j->width, j->height);
+                 (unsigned long)(rgb_sz / 1024), out_w, out_h);
   j->rgb = (uint8_t*)ps_malloc(rgb_sz);
   if (!j->rgb) j->rgb = (uint8_t*)malloc(rgb_sz);
   if (!j->rgb) {
@@ -584,7 +601,11 @@ scan:
             cr = cbuf[2][(by * hs + bx) * 64 + oy * 8 + ox];
           }
           float cb0 = cb - 128.0f, cr0 = cr - 128.0f;
-          size_t idx = ((size_t)iy * j->width + ix) * 3;
+          int ox = (int)((long long)ix * out_w / (int)j->width);
+          int oy = (int)((long long)iy * out_h / (int)j->height);
+          if (ox >= out_w) ox = out_w - 1;
+          if (oy >= out_h) oy = out_h - 1;
+          size_t idx = ((size_t)oy * out_w + ox) * 3;
           j->rgb[idx + 0] = clamp8(yy + 1.40200f * cr0);
           j->rgb[idx + 1] = clamp8(yy - 0.34414f * cb0 - 0.71414f * cr0);
           j->rgb[idx + 2] = clamp8(yy + 1.77200f * cb0);
@@ -599,8 +620,8 @@ done:
     free(j->rgb); free(j); return false;
   }
   out->pixels = j->rgb;
-  out->width  = j->width;
-  out->height = j->height;
+  out->width  = out_w;
+  out->height = out_h;
   free(j);
   return true;
 }
@@ -632,15 +653,36 @@ static bool decode_jpeg(File& f, RgbImage* out) {
 struct PngCtx {
   RgbImage* out;
   bool      oom;
+  // Decode-to-target: when set, the output buffer is allocated at (a subset
+  // of) the caller's target size and each decoded source pixel is mapped into
+  // it, keeping peak memory at target*3 instead of source*3.
+  int       target_w = 0;
+  int       target_h = 0;
+  int       src_w    = 0;
+  int       src_h    = 0;
 };
 
 static void pngle_on_init(pngle_t* p, uint32_t w, uint32_t h) {
   PngCtx* ctx = (PngCtx*)pngle_get_user_data(p);
-  ctx->out->width  = (int)w;
-  ctx->out->height = (int)h;
-  const size_t n = (size_t)w * h * 3;
-  Serial1.printf("[png]   IHDR %ux%u, allocating RGB888 buffer: %lu kB\n",
-                 (unsigned)w, (unsigned)h, (unsigned long)(n / 1024));
+  ctx->src_w = (int)w;
+  ctx->src_h = (int)h;
+  int out_w = (int)w;
+  int out_h = (int)h;
+  if (ctx->target_w > 0 && ctx->target_h > 0 &&
+      ((size_t)w * h > (size_t)ctx->target_w * ctx->target_h)) {
+    const float fit = (float)ctx->target_w / (int)w < (float)ctx->target_h / (int)h
+                          ? (float)ctx->target_w / (int)w
+                          : (float)ctx->target_h / (int)h;
+    out_w = (int)((int)w * fit);
+    out_h = (int)((int)h * fit);
+    if (out_w < 1) out_w = 1;
+    if (out_h < 1) out_h = 1;
+  }
+  ctx->out->width  = out_w;
+  ctx->out->height = out_h;
+  const size_t n = (size_t)out_w * out_h * 3;
+  Serial1.printf("[png]   IHDR %ux%u, allocating RGB888 buffer: %lu kB (%dx%d x3)\n",
+                 (unsigned)w, (unsigned)h, (unsigned long)(n / 1024), out_w, out_h);
   uint8_t* buf = (uint8_t*)ps_malloc(n);
   if (!buf) buf = (uint8_t*)malloc(n);
   if (!buf) {
@@ -674,21 +716,25 @@ static void pngle_on_draw(pngle_t* p, uint32_t x, uint32_t y,
   for (uint32_t dy = 0; dy < h; ++dy) {
     const int py = (int)(y + dy);
     if (py >= H) break;
+    const int oy = ctx->src_h == H ? py : (int)((uint32_t)py * H / (uint32_t)ctx->src_h);
+    if (oy >= H) break;
     for (uint32_t dx = 0; dx < w; ++dx) {
       const int px = (int)(x + dx);
       if (px >= W) break;
-      uint8_t* dst = ctx->out->pixels + ((size_t)py * W + px) * 3;
+      const int ox = ctx->src_w == W ? px : (int)((uint32_t)px * W / (uint32_t)ctx->src_w);
+      if (ox >= W) continue;
+      uint8_t* dst = ctx->out->pixels + ((size_t)oy * W + ox) * 3;
       dst[0] = r; dst[1] = g; dst[2] = b;
     }
   }
 }
 
 template <typename Reader>
-static bool decode_png(Reader& f, RgbImage* out) {
+static bool decode_png(Reader& f, RgbImage* out, int target_w = 0, int target_h = 0) {
   pngle_t* png = pngle_new();
   if (!png) { Serial1.println("[png] pngle_new failed"); return false; }
 
-  PngCtx ctx{ out, false };
+  PngCtx ctx{ out, false, target_w, target_h, 0, 0 };
   pngle_set_user_data(png, &ctx);
   pngle_set_init_callback(png, pngle_on_init);
   pngle_set_draw_callback(png, pngle_on_draw);
@@ -835,7 +881,7 @@ bool load_image_from_sd(const char* path, int target_w, int target_h, RgbImage* 
   } else if (fmt == FMT_BMP || (fmt == FMT_UNKNOWN && ext_bmp)) {
     ok = decode_bmp(f, out);
   } else if (fmt == FMT_PNG || (fmt == FMT_UNKNOWN && ext_png)) {
-    ok = decode_png(f, out);
+    ok = decode_png(f, out, target_w, target_h);
   } else {
     Serial1.printf("[img] unsupported format: ext=%s magic=%02X %02X %02X %02X (only JPEG / BMP / PNG are supported)\n",
                    path, sniff[0], sniff[1], sniff[2], sniff[3]);
@@ -877,7 +923,7 @@ bool load_image_from_memory(const uint8_t* data, size_t length,
   bool ok = false;
   if (fmt == FMT_JPEG) {
     JpegRgb decoded;
-    ok = jpeg_decode_rgb(data, length, &decoded);
+    ok = jpeg_decode_rgb(data, length, &decoded, target_w, target_h);
     if (ok) {
       out->pixels = decoded.pixels;
       out->width = decoded.width;
@@ -888,7 +934,7 @@ bool load_image_from_memory(const uint8_t* data, size_t length,
     ok = decode_bmp(reader, out);
   } else if (fmt == FMT_PNG) {
     MemoryReader reader(data, length);
-    ok = decode_png(reader, out);
+    ok = decode_png(reader, out, target_w, target_h);
   } else {
     Serial1.printf("[img] unsupported in-memory image '%s' (%02X %02X %02X %02X)\n",
                    name_hint ? name_hint : "?", data[0], data[1],

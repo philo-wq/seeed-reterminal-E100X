@@ -31,7 +31,9 @@ struct RgbImage {
 
 // `target_w`/`target_h` == 0 means "keep source size".
 // If both are non-zero and they differ from the decoded size, the loader resizes
-// (nearest-neighbor) into a freshly-allocated PSRAM buffer.
+// (nearest-neighbor) into a freshly-allocated PSRAM buffer. JPEG and PNG decode
+// directly into an aspect-fitted target buffer (peak memory target*3 instead
+// of source*3); BMP decodes at source size first, then resizes.
 bool load_image_from_sd(const char* path, int target_w, int target_h, RgbImage* out);
 
 // Decode an image held in RAM/PSRAM. The compressed input remains owned by the

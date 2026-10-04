@@ -1784,7 +1784,9 @@ bool renderEpubCoverImage() {
                cover.nameHint().c_str(),
                static_cast<unsigned long>(cover.length()));
     decoded = load_image_from_memory(cover.data(), cover.length(),
-                                     cover.nameHint().c_str(), 0, 0, &image);
+                                     cover.nameHint().c_str(),
+                                     kReaderCoverMaximumWidth,
+                                     kReaderCoverMaximumHeight, &image);
     cover.clear();
   } else if (!readerFolderCoverPath.isEmpty()) {
     LOG.printf("[games] decoding folder cover %s\n",
