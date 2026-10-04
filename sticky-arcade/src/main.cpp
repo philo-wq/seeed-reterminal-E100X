@@ -16,6 +16,7 @@
 
 #include "app_logger.h"
 #include "battery_gauge.h"
+#include <Preferences.h>
 #include "board_pins.h"
 #include "driver.h"
 #include "dither.h"
@@ -327,6 +328,44 @@ int browserPageStart = 0;
 String browserMessage;
 String readerBrowserPath = "/";
 String readerBookPath;
+
+namespace epub_resume {
+namespace {
+constexpr const char* kNamespace = "epub";
+constexpr const char* kBookKey = "last";
+String cached;
+bool loaded = false;
+
+void saveIfChanged(const String& path) {
+  if (cached == path) return;
+  Preferences prefs;
+  if (!prefs.begin(kNamespace, /*readOnly=*/false)) return;
+  if (path.isEmpty()) {
+    prefs.remove(kBookKey);
+  } else {
+    prefs.putString(kBookKey, path);
+  }
+  prefs.end();
+  cached = path;
+}
+}  // namespace
+
+// Remember the last successfully opened book so entering Ebooks from the
+// menu resumes it instead of landing on the file list.
+void note(const String& path) { saveIfChanged(path); }
+
+const String& last() {
+  if (!loaded) {
+    loaded = true;
+    Preferences prefs;
+    if (prefs.begin(kNamespace, /*readOnly=*/true)) {
+      cached = prefs.getString(kBookKey, "");
+      prefs.end();
+    }
+  }
+  return cached;
+}
+}  // namespace epub_resume
 String readerFolderCoverPath;
 EpubChapterText readerChapterText;
 bool readerChapterRequiresNonAscii = false;
@@ -2009,6 +2048,7 @@ bool openReaderBook(const String& path, int chapter = 0,
         readerCoverVisible ? "yes" : "no",
         static_cast<unsigned long>(ESP.getFreeHeap() / 1024),
         static_cast<unsigned long>(ESP.getFreePsram() / 1024));
+    epub_resume::note(path);
     return true;
   }
   const String savedError = epubArchive.error();
@@ -2551,9 +2591,17 @@ void showNextBrowserPage(bool validateStorage = true) {
 void launchGame(GameId game) {
   hardware::beep();
   switch (game) {
-    case GameId::EpubReader:
-      showEpubBrowser();
+    case GameId::EpubReader: {
+      const String last = epub_resume::last();
+      if (!last.isEmpty() && SD.exists(last) &&
+          openReaderBook(last)) {
+        showEpubReading();
+      } else {
+        if (!last.isEmpty()) epub_resume::note("");
+        showEpubBrowser();
+      }
       break;
+    }
     case GameId::RunnersJournal:
       showRunnersJournal();
       break;
