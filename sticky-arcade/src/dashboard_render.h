@@ -32,9 +32,9 @@ constexpr int LINE_GAP = 6;
 // through the flash-resident GFX font instead (see drawHero).
 enum class FontSize { Tiny, Small };
 
-enum class Screen { Uke, Aar, Siste, Journal };
+enum class Screen { Uke, Aar, Siste, Journal, Kart };
 
-constexpr int SCREEN_COUNT = 4;
+constexpr int SCREEN_COUNT = 5;
 
 // E1005 smooth-font pixel sizes. Smaller antialiased cuts lose stroke
 // weight on the one-bit panel, so we stay at >= 18px for body text.
@@ -586,6 +586,119 @@ inline void renderJournal(EPaper& epaper, SmoothFont& font,
   font.unload();
 }
 
+// Ukeskart: render the week's GPS routes on a projected map tile.
+// Equirectangular projection with a fixed latitude scale factor (valid
+// around Oslo, ~59.9N); line style encodes run type; a 3x3 start marker
+// marks each route's first point. Routes arrive oldest-first, and draw
+// order preserves that.
+template <typename EPaper>
+inline void renderKart(EPaper& epaper, SmoothFont& font,
+                       const dashboard::DashboardData& data) {
+  clearPanel(epaper);
+  const String title = String("Ukeskart - ") + data.uke.merkelapp;
+  drawHeader(epaper, font, title, data.oppdatert);
+  font.load(FontSize::Small);
+  int y = MARGIN + textHeight(epaper, font) + LINE_GAP * 3;
+
+  if (data.ruter.empty()) {
+    const String msg = "Ingen GPS-ruter denne uka";
+    const int w = textWidth(epaper, font, msg);
+    drawText(epaper, font, msg, (config::PANEL_WIDTH - w) / 2, y + 40,
+             FontSize::Small);
+    font.unload();
+    return;
+  }
+
+  float minLat = 90.0f, maxLat = -90.0f, minLng = 180.0f, maxLng = -180.0f;
+  for (const dashboard::RouteEntry& r : data.ruter) {
+    for (const dashboard::RoutePoint& p : r.rute) {
+      if (p.lat < minLat) minLat = p.lat;
+      if (p.lat > maxLat) maxLat = p.lat;
+      if (p.lng < minLng) minLng = p.lng;
+      if (p.lng > maxLng) maxLng = p.lng;
+    }
+  }
+  const float midLat = (minLat + maxLat) / 2.0f;
+  const float kLatScale = 0.5f;
+  const float latSpan = (maxLat - minLat) * kLatScale;
+  const float lngSpan = maxLng - minLng;
+
+  constexpr int FOOTER = 24;
+  const int tileX = MARGIN;
+  const int tileY = y;
+  const int tileW = config::PANEL_WIDTH - 2 * MARGIN;
+  const int tileH = config::PANEL_HEIGHT - tileY - MARGIN - FOOTER;
+
+  if (latSpan <= 0.0f || lngSpan <= 0.0f || tileW <= 0 || tileH <= 0) {
+    const String msg = "Ingen GPS-ruter denne uka";
+    const int w = textWidth(epaper, font, msg);
+    drawText(epaper, font, msg, (config::PANEL_WIDTH - w) / 2, y + 40,
+             FontSize::Small);
+    font.unload();
+    return;
+  }
+
+  const float kPad = 0.12f;
+  const float padLat = (maxLat - minLat) * kPad;
+  const float padLng = lngSpan * kPad;
+  minLat -= padLat;
+  maxLat += padLat;
+  minLng -= padLng;
+  maxLng += padLng;
+  const float spanLat = (maxLat - minLat) * kLatScale;
+  const float spanLng = maxLng - minLng;
+  const float scale =
+      tileH / spanLat < tileW / spanLng ? tileH / spanLat : tileW / spanLng;
+  const int offX =
+      tileX + static_cast<int>((tileW - spanLng * scale) / 2.0f);
+  const int offY =
+      tileY + static_cast<int>((tileH - spanLat * scale) / 2.0f);
+
+  epaper.fillRect(tileX, tileY, tileW, tileH, PAPER);
+  epaper.drawRect(tileX, tileY, tileW, tileH, INK);
+
+  struct Style {
+    bool solid;
+    int skip;
+  };
+  const Style fallback{true, 0};
+  const Style solid{true, 0};
+  const Style dashed{true, 4};
+  const Style dotted{true, 2};
+
+  for (const dashboard::RouteEntry& r : data.ruter) {
+    Style style = fallback;
+    bool startMarker = false;
+    if (r.type == "long") {
+      style = solid;
+    } else if (r.type == "interval") {
+      style = dashed;
+    } else if (r.type == "recovery") {
+      style = dotted;
+    } else if (r.type == "race") {
+      style = solid;
+      startMarker = true;
+    }
+    for (size_t i = 1; i < r.rute.size(); ++i) {
+      if (style.skip > 0 && (i % style.skip) == 0) continue;
+      const dashboard::RoutePoint& a = r.rute[i - 1];
+      const dashboard::RoutePoint& b = r.rute[i];
+      const int x1 = offX + static_cast<int>((a.lng - minLng) * kLatScale * scale);
+      const int y1 = offY + static_cast<int>((maxLat - a.lat) * scale);
+      const int x2 = offX + static_cast<int>((b.lng - minLng) * kLatScale * scale);
+      const int y2 = offY + static_cast<int>((maxLat - b.lat) * scale);
+      epaper.drawLine(x1, y1, x2, y2, INK);
+    }
+    if (startMarker && !r.rute.empty()) {
+      const dashboard::RoutePoint& p = r.rute.front();
+      const int px = offX + static_cast<int>((p.lng - minLng) * kLatScale * scale);
+      const int py = offY + static_cast<int>((maxLat - p.lat) * scale);
+      epaper.fillRect(px - 1, py - 1, 3, 3, INK);
+    }
+  }
+  font.unload();
+}
+
 // Dispatch: render the requested screen.
 template <typename EPaper>
 inline void renderScreen(EPaper& epaper, SmoothFont& font,
@@ -596,6 +709,7 @@ inline void renderScreen(EPaper& epaper, SmoothFont& font,
     case Screen::Aar:    renderAar(epaper, font, data); break;
     case Screen::Siste:  renderSiste(epaper, font, data); break;
     case Screen::Journal: renderJournal(epaper, font, data); break;
+    case Screen::Kart:   renderKart(epaper, font, data); break;
   }
 }
 

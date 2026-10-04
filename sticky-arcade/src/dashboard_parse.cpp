@@ -71,6 +71,31 @@ void parseJournal(const JsonArray& arr, std::vector<JournalEntry>& out) {
   }
 }
 
+void parseRuter(const JsonArray& arr, std::vector<RouteEntry>& out) {
+  out.clear();
+  out.reserve(arr.size());
+  for (const JsonVariant& v : arr) {
+    const JsonObject& o = v.as<JsonObject>();
+    if (o.isNull()) continue;
+    RouteEntry e;
+    e.type = o["type"] | "";
+    const JsonArray rute = o["rute"];
+    if (rute.isNull() || rute.size() < 2) continue;
+    e.rute.reserve(rute.size() > 200 ? 200 : rute.size());
+    for (const JsonVariant& p : rute) {
+      const JsonArray& pair = p.as<JsonArray>();
+      if (pair.isNull() || pair.size() < 2) continue;
+      const float lat = pair[0] | 0.0f;
+      const float lng = pair[1] | 0.0f;
+      if (lat == 0.0f && lng == 0.0f) continue;
+      e.rute.push_back({lat, lng});
+    }
+    if (e.rute.size() >= 2) {
+      out.push_back(std::move(e));
+    }
+  }
+}
+
 }  // namespace
 
 bool parse(const String& body, DashboardData& out) {
@@ -107,6 +132,9 @@ bool parse(const String& body, DashboardData& out) {
 
   const JsonArray journal = root["journal"];
   if (!journal.isNull()) parseJournal(journal, out.journal);
+
+  const JsonArray ruter = root["ruter"];
+  if (!ruter.isNull()) parseRuter(ruter, out.ruter);
 
   return true;
 }

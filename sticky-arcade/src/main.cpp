@@ -285,8 +285,8 @@ Screen currentScreen = Screen::Menu;
 MenuPage currentMenuPage = MenuPage::First;
 
 // Runners-Journal Screen enum (must be defined before use)
-enum class RunnersJournalScreen { Uke, Aar, Siste, Journal };
-constexpr int kRunnersJournalScreenCount = 4;
+enum class RunnersJournalScreen { Uke, Aar, Siste, Journal, Kart };
+constexpr int kRunnersJournalScreenCount = 5;
 
 // Runners-Journal state
 namespace runners_journal {

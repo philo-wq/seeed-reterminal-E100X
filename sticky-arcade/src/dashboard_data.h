@@ -47,6 +47,16 @@ struct JournalEntry {
   String note;
 };
 
+struct RoutePoint {
+  float lat = 0.0f;
+  float lng = 0.0f;
+};
+
+struct RouteEntry {
+  String type;
+  std::vector<RoutePoint> rute;
+};
+
 struct DashboardData {
   String oppdatert;
   uint32_t neste_oppvakning_s = 0;
@@ -57,6 +67,7 @@ struct DashboardData {
   std::vector<TypeEntry> typer;
   std::vector<RunEntry> siste_lop;
   std::vector<JournalEntry> journal;
+  std::vector<RouteEntry> ruter;
 };
 
 }  // namespace dashboard
