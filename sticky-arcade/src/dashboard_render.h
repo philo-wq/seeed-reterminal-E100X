@@ -13,6 +13,7 @@
 #include <Arduino.h>
 #include <SD.h>
 #include <TFT_eSPI.h>
+#include <vector>
 
 #include "runners_journal_config.h"
 #include "dashboard_data.h"
@@ -262,6 +263,51 @@ inline void drawHairline(TFT_eSPI& epaper, int y) {
   epaper.drawFastHLine(MARGIN, y, config::PANEL_WIDTH - 2 * MARGIN, INK_FAINT);
 }
 
+// Word-wrap `text` into lines that fit `maxW`, hard-splitting any single
+// word longer than the available width (e.g. URLs or long Norwegian
+// compounds) at the pixel level. Shared by the Journal and status screens.
+inline void wrapText(TFT_eSPI& epaper, SmoothFont& font, const String& text,
+                     int maxW, std::vector<String>& lines) {
+  lines.clear();
+  String line;
+  const int len = static_cast<int>(text.length());
+  for (int ci = 0; ci < len; ++ci) {
+    line += text[ci];
+    if (text[ci] == ' ' || ci == len - 1) {
+      if (textWidth(epaper, font, line) <= maxW) continue;
+      const int lastSpace = line.lastIndexOf(' ');
+      if (lastSpace > 0) {
+        lines.push_back(line.substring(0, lastSpace));
+        line = line.substring(lastSpace + 1);
+      } else {
+        // Single unbreakable word: split it at the pixel boundary.
+        String chunk;
+        for (int k = 0; k < static_cast<int>(line.length()); ++k) {
+          const String candidate = chunk + line[k];
+          if (textWidth(epaper, font, candidate) > maxW && chunk.length() > 0) {
+            lines.push_back(chunk);
+            chunk = "";
+          }
+          chunk += line[k];
+        }
+        line = chunk;
+      }
+    }
+  }
+  if (line.length() > 0) lines.push_back(line);
+}
+
+// Truncate with an ellipsis so a header row never exceeds maxW.
+inline String fitText(TFT_eSPI& epaper, SmoothFont& font, const String& text,
+                      int maxW) {
+  if (textWidth(epaper, font, text) <= maxW) return text;
+  String out = text;
+  while (out.length() > 1 && textWidth(epaper, font, out + "...") > maxW) {
+    out.remove(out.length() - 1);
+  }
+  return out + "...";
+}
+
 inline void drawHeader(TFT_eSPI& epaper, SmoothFont& font,
                        const String& title, const String& oppdatert) {
   int y = MARGIN;
@@ -477,15 +523,20 @@ inline void renderSiste(EPaper& epaper, SmoothFont& font,
   int y = MARGIN + textHeight(epaper, font) + LINE_GAP * 3;
 
   font.load(FontSize::Small);
+  const int lineH = textHeight(epaper, font) + LINE_GAP;
+  const int maxW = config::PANEL_WIDTH - 2 * MARGIN;
+  const int bottomLimit = config::PANEL_HEIGHT - MARGIN;
   const size_t runsToShow =
       data.siste_lop.size() > 9 ? 9 : data.siste_lop.size();
   for (size_t i = 0; i < runsToShow; ++i) {
+    if (y + lineH > bottomLimit) break;
     const dashboard::RunEntry& r = data.siste_lop[i];
 
-    // Date + type on the left.
+    // Date + type on the left, truncated to the panel width.
     const String left = r.dato + "  " + r.type;
-    drawText(epaper, font, left, MARGIN, y, FontSize::Small);
-    y += textHeight(epaper, font) + LINE_GAP;
+    drawText(epaper, font, fitText(epaper, font, left, maxW),
+             MARGIN, y, FontSize::Small);
+    y += lineH;
 
     if (isAlternativOkt(r)) {
       // Distance-less activity (strength, stretch, etc.): no km/pace/
@@ -498,7 +549,8 @@ inline void renderSiste(EPaper& epaper, SmoothFont& font,
       // Detail row: km + pace + elevation.
       const String detail = kmString(r.km) + "km  " + r.pace + "  " +
                             elevString(r.elevation_m);
-      drawText(epaper, font, detail, MARGIN, y, FontSize::Small);
+      drawText(epaper, font, fitText(epaper, font, detail, maxW),
+               MARGIN, y, FontSize::Small);
       y += textHeight(epaper, font) + LINE_GAP * 2;
     }
 
@@ -538,47 +590,33 @@ inline void renderJournal(EPaper& epaper, SmoothFont& font,
     return;
   }
 
+  const int lineH = textHeight(epaper, font) + LINE_GAP;
+  const int maxW = config::PANEL_WIDTH - 2 * MARGIN;
+  const int bottomLimit = config::PANEL_HEIGHT - MARGIN;
   const size_t toShow =
       data.journal.size() > 9 ? 9 : data.journal.size();
   for (size_t i = 0; i < toShow; ++i) {
     const dashboard::JournalEntry& j = data.journal[i];
 
-    // Date + type header.
+    // Date + type header, truncated so it never leaves the panel.
     const String head = j.dato + "  " + j.type;
-    drawText(epaper, font, head, MARGIN, y, FontSize::Small);
-    y += textHeight(epaper, font) + LINE_GAP;
+    drawText(epaper, font, fitText(epaper, font, head, maxW),
+             MARGIN, y, FontSize::Small);
+    y += lineH;
+    if (y > bottomLimit) break;
 
-    // Note (may wrap — simple word-wrap to panel width).
-    const int maxW = config::PANEL_WIDTH - 2 * MARGIN;
-    String line;
-    line.reserve(j.note.length());
-    for (int ci = 0; ci < static_cast<int>(j.note.length()); ++ci) {
-      line += j.note[ci];
-      if (j.note[ci] == ' ' || ci == static_cast<int>(j.note.length()) - 1) {
-        const int lw = textWidth(epaper, font, line);
-        if (lw > maxW) {
-          // Trim back to last space.
-          const int lastSpace = line.lastIndexOf(' ');
-          if (lastSpace > 0) {
-            const String toDraw = line.substring(0, lastSpace);
-            drawText(epaper, font, toDraw, MARGIN, y, FontSize::Small);
-            y += textHeight(epaper, font) + LINE_GAP;
-            line = line.substring(lastSpace + 1);
-          } else {
-            drawText(epaper, font, line, MARGIN, y, FontSize::Small);
-            y += textHeight(epaper, font) + LINE_GAP;
-            line = "";
-          }
-        }
-      }
-    }
-    if (line.length() > 0) {
-      drawText(epaper, font, line, MARGIN, y, FontSize::Small);
-      y += textHeight(epaper, font) + LINE_GAP;
+    // Note: word-wrap to panel width (unbreakable words hard-split).
+    std::vector<String> noteLines;
+    wrapText(epaper, font, j.note, maxW, noteLines);
+    for (const String& nl : noteLines) {
+      if (y + lineH > bottomLimit) break;
+      drawText(epaper, font, nl, MARGIN, y, FontSize::Small);
+      y += lineH;
     }
 
     y += LINE_GAP;
     if (i + 1 < toShow) {
+      if (y + LINE_GAP > bottomLimit) break;
       drawHairline(epaper, y);
       y += LINE_GAP * 2;
     }
