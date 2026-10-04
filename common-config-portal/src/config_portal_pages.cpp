@@ -236,7 +236,7 @@ String renderWifiPage(const Config& cfg, const Schema& wifi, const Schema* appSc
       "let name=document.createElement('span');name.className='ssid-name';name.textContent=(n.secure?'\u2022 ':'  ')+n.ssid;"
       "let meta=document.createElement('span');meta.className='ssid-meta';meta.textContent=rssiBars(n.rssi)+' '+n.rssi+' dBm';"
       "li.append(name,meta);"
-      "let pick=()=>{let s=document.getElementById('ssid');s.value=n.ssid;s.focus();let p=document.querySelector('[name=\"password\"]');if(p)p.focus();};"
+      "let pick=()=>{let s=document.activeElement&&/^ssid/.test(document.activeElement.id||'')?document.activeElement:document.getElementById('ssid');s.value=n.ssid;s.focus();let pkey=s.id==='ssid'?'password':'password'+s.id.replace(/^ssid/,'');let p=document.querySelector('[name=\"'+pkey+'\"]');if(!p)p=document.querySelector('[name=\"password\"]');if(p)p.focus();};"
       "li.onclick=pick;li.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();pick();}};"
       "ul.appendChild(li);});"
       "ul.hidden=ul.children.length===0;"

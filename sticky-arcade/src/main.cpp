@@ -295,6 +295,7 @@ namespace runners_journal {
   bool dataFetched = false;
   uint32_t lastActivityTime = 0;
   bool timerWakesSuppressed = false;
+  String lastWifiFailure;
   // True when the last fetch failed and the status screen is showing; lets
   // the OK handler offer the Wi-Fi portal instead of just refetching.
   bool showingFetchStatus = false;
@@ -2167,10 +2168,14 @@ void renderStatusScreenAndRefresh() {
   dashboard_render::SmoothFont font(epaper);
   const bool smoothOk = sdCardReady && font.load(dashboard_render::FontSize::Small);
   if (!smoothOk) font.selectGfxFallback(dashboard_render::FontSize::Small);
-  dashboard_render::renderStatus(
-      epaper, font, "Løp",
-      "Kunne ikke hente data. OK-knappen = prøv igjen. Hold OK inne = "
-      "Wi-Fi-innstillinger (QR).");
+  String detail = "Kunne ikke hente data. OK = prøv igjen. OPP/NED = hovedmeny. "
+      "Hold OK inne = Wi-Fi-innstillinger.";
+  if (runners_journal::lastWifiFailure.length() > 0) {
+    detail = "Wi-Fi: " + runners_journal::lastWifiFailure +
+        ". OK = prøv igjen. OPP/NED = hovedmeny. "
+        "Hold OK inne = Wi-Fi-innstillinger.";
+  }
+  dashboard_render::renderStatus(epaper, font, "Løp", detail);
   font.unload();
   refreshScreen("Runners Journal status");
 }
@@ -2354,6 +2359,7 @@ void fetchRunnersJournalData() {
   
   if (!wifiResult.connected) {
     LOG.printf("[runners-journal] WiFi connect failed: %s\n", wifiFailure.c_str());
+    runners_journal::lastWifiFailure = wifiFailure;
     runners_journal::dataFetched = false;
     return;
   }
