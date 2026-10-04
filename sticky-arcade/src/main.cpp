@@ -2216,8 +2216,15 @@ void runConfigPortalAndReboot() {
   portalCfg.appName = "Runners Journal";
   portalCfg.useAutoApPassword = true;
   portalCfg.wifiFallback = [](const char* key) -> String {
-    if (strcmp(key, "ssid") == 0) return String(sticky_wifi::ssid());
-    if (strcmp(key, "password") == 0) return String(sticky_wifi::password());
+    if (strcmp(key, "ssid") == 0) return String(sticky_wifi::profile(0).ssid);
+    if (strcmp(key, "password") == 0)
+      return String(sticky_wifi::profile(0).password);
+    if (strcmp(key, "ssid1") == 0) return String(sticky_wifi::profile(1).ssid);
+    if (strcmp(key, "password1") == 0)
+      return String(sticky_wifi::profile(1).password);
+    if (strcmp(key, "ssid2") == 0) return String(sticky_wifi::profile(2).ssid);
+    if (strcmp(key, "password2") == 0)
+      return String(sticky_wifi::profile(2).password);
     return String();
   };
 
@@ -2267,6 +2274,71 @@ void runConfigPortalAndReboot() {
   ESP.restart();
 }
 
+// Try each stored Wi-Fi profile in a battery-friendly order: the last
+// profile that connected first, then any other stored profile that is
+// actually visible in a quick site survey. Away from every known network
+// the scan ends the attempt in ~2 s instead of a blind 30 s timeout per
+// profile. Returns the first successful connection result.
+wifi_sta::ConnectResult connectKnownNetwork(String* failureReason) {
+  const int active = sticky_wifi::activeProfile();
+  int order[sticky_wifi::kMaxProfiles];
+  int count = 0;
+  if (active >= 0) order[count++] = active;
+  for (int i = 0; i < sticky_wifi::kMaxProfiles; ++i) {
+    if (i != active && sticky_wifi::profile(i).valid()) order[count++] = i;
+  }
+  if (count == 0) {
+    if (failureReason) *failureReason = "Wi-Fi is not configured";
+    return wifi_sta::ConnectResult{wifi_sta::ConnectOutcome::NotConfigured,
+                                   false, 0, 0};
+  }
+
+  // Try the last successful profile outright - usually home, instant.
+  for (int oi = 0; oi < count; ++oi) {
+    const sticky_wifi::Profile p = sticky_wifi::profile(order[oi]);
+    if (!p.valid()) continue;
+    LOG.printf("[wifi] trying stored network '%s'\n", p.ssid.c_str());
+    const wifi_sta::ConnectResult r = wifi_sta::connectStation(
+        p.ssid.c_str(), p.password.c_str(), config::WIFI_CONNECT_TIMEOUT_MS,
+        failureReason);
+    if (r.connected) {
+      sticky_wifi::markActive(order[oi]);
+      return r;
+    }
+  }
+
+  // Scan and connect to whichever other stored network is visible.
+  LOG.println("[wifi] scanning for other stored networks...");
+  const int16_t found = WiFi.scanNetworks();
+  if (found <= 0) {
+    if (failureReason) *failureReason = "No Wi-Fi networks found";
+    WiFi.scanDelete();
+    return wifi_sta::ConnectResult{wifi_sta::ConnectOutcome::Failed, false, 0,
+                                   0};
+  }
+  wifi_sta::ConnectResult last{wifi_sta::ConnectOutcome::Failed, false, 0, 0};
+  for (int oi = 0; oi < count; ++oi) {
+    const sticky_wifi::Profile p = sticky_wifi::profile(order[oi]);
+    if (!p.valid()) continue;
+    for (int n = 0; n < found; ++n) {
+      if (WiFi.SSID(n) != p.ssid) continue;
+      LOG.printf("[wifi] stored network '%s' visible; connecting\n",
+                 p.ssid.c_str());
+      last = wifi_sta::connectStation(p.ssid.c_str(), p.password.c_str(),
+                                      config::WIFI_CONNECT_TIMEOUT_MS,
+                                      failureReason);
+      if (last.connected) {
+        sticky_wifi::markActive(order[oi]);
+        WiFi.scanDelete();
+        return last;
+      }
+      break;
+    }
+  }
+  WiFi.scanDelete();
+  return last;
+}
+
 void fetchRunnersJournalData() {
   LOG.println("[runners-journal] Fetching dashboard data...");
   
@@ -2278,10 +2350,7 @@ void fetchRunnersJournalData() {
   }
   
   String wifiFailure;
-  const wifi_sta::ConnectResult wifiResult = wifi_sta::connectStation(
-      sticky_wifi::ssid(), sticky_wifi::password(),
-      config::WIFI_CONNECT_TIMEOUT_MS, &wifiFailure
-  );
+  const wifi_sta::ConnectResult wifiResult = connectKnownNetwork(&wifiFailure);
   
   if (!wifiResult.connected) {
     LOG.printf("[runners-journal] WiFi connect failed: %s\n", wifiFailure.c_str());

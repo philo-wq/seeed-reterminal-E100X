@@ -8,6 +8,14 @@ const Field kWifiFields[] = {
      FieldType::String, "", nullptr, 0, 32, nullptr},
     {"password", "Password", "Wi-Fi password; empty is allowed for open networks.",
      FieldType::Password, "", nullptr, 0, 63, nullptr},
+    {"ssid1", "SSID 2", "Extra network (work, cabin...). Leave empty when unused.",
+     FieldType::String, "", nullptr, 0, 32, nullptr},
+    {"password1", "Password 2", "Password for the second network.",
+     FieldType::Password, "", nullptr, 0, 63, nullptr},
+    {"ssid2", "SSID 3", "Third network. Leave empty when unused.",
+     FieldType::String, "", nullptr, 0, 32, nullptr},
+    {"password2", "Password 3", "Password for the third network.",
+     FieldType::Password, "", nullptr, 0, 63, nullptr},
 };
 
 const Section kWifiSections[] = {
