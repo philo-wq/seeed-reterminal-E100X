@@ -65,7 +65,7 @@
 #include "../../common/include/wifi_sta.h"
 
 #if RETERMINAL_MODEL != 1005
-#error "Sticky Arcade supports only reTerminal E1005"
+#error "Runners Journal supports only reTerminal E1005"
 #endif
 
 TimestampedLogger appLog(Serial1);
@@ -79,8 +79,8 @@ using game_localization::TextId;
 
 constexpr int kScreenWidth = 480;
 constexpr int kScreenHeight = 800;
-constexpr char kAppName[] = "Sticky Arcade";
-constexpr char kBrandName[] = "STICKY ARCADE";
+constexpr char kAppName[] = "Runners Journal";
+constexpr char kBrandName[] = "Runners Journal";
 constexpr int kGridLeft = 40;
 constexpr int kGridTop = 150;
 constexpr int kCellSize = 80;
@@ -399,7 +399,7 @@ const char* gameName(GameId game) {
     case GameId::EpubReader:
       return "EPUB Reader";
     case GameId::RunnersJournal:
-      return "LØP";
+      return "Løp";
     case GameId::Count:
       break;
   }
@@ -409,7 +409,7 @@ const char* gameName(GameId game) {
 const char* shortEnglishGameName(GameId game) {
   switch (game) {
     case GameId::RunnersJournal:
-      return "LØP";
+      return "Løp";
     default:
       return gameName(game);
   }
@@ -742,31 +742,6 @@ void drawCenteredNumber(uint32_t value, int x, int y, int font,
   epaper.drawNumber(static_cast<long>(value), x, y + opticalYOffset, font);
 }
 
-void drawArcadeLogo(int centerX, int centerY, int width) {
-  const int height = width * 5 / 8;
-  const int left = centerX - width / 2;
-  const int top = centerY - height / 2;
-  const int radius = height / 4;
-  epaper.fillRoundRect(left, top, width, height, radius, TFT_BLACK);
-
-  const int controlSize = height / 3;
-  const int controlX = left + width / 4;
-  const int controlY = centerY;
-  const int controlThickness = std::max(4, controlSize / 3);
-  epaper.fillRect(controlX - controlSize / 2,
-                  controlY - controlThickness / 2, controlSize,
-                  controlThickness, TFT_WHITE);
-  epaper.fillRect(controlX - controlThickness / 2,
-                  controlY - controlSize / 2, controlThickness,
-                  controlSize, TFT_WHITE);
-
-  const int buttonRadius = std::max(4, height / 11);
-  epaper.fillCircle(left + width * 3 / 4 - buttonRadius,
-                    centerY + buttonRadius, buttonRadius, TFT_WHITE);
-  epaper.fillCircle(left + width * 3 / 4 + buttonRadius,
-                    centerY - buttonRadius, buttonRadius, TFT_WHITE);
-}
-
 void drawButton(const Rect& rect, const char* label) {
   const bool smoothFont = languageSelectionVisible ||
                           currentLanguage != Language::English;
@@ -813,31 +788,23 @@ void drawEpubReaderMenuCard() {
 void drawRunnersJournalMenuCard() {
   drawMenuCardFrame(kRunnersJournalMenuCard);
   const int centerX = kRunnersJournalMenuCard.x + kRunnersJournalMenuCard.width / 2;
-  const int baseY = kRunnersJournalMenuCard.y + kMenuPreviewSize / 2 + 52;
-  const int groundY = baseY + 6;
-  epaper.drawFastHLine(centerX - 62, groundY, 124, TFT_BLACK);
-  epaper.drawCircle(centerX - 28, baseY - 78, 9, TFT_BLACK);
-  epaper.drawLine(centerX - 26, baseY - 68, centerX - 22, baseY - 44, TFT_BLACK);
-  epaper.drawLine(centerX - 30, baseY - 68, centerX - 34, baseY - 44, TFT_BLACK);
-  epaper.drawLine(centerX - 22, baseY - 44, centerX - 18, baseY - 10, TFT_BLACK);
-  epaper.drawLine(centerX - 34, baseY - 44, centerX - 38, baseY - 12, TFT_BLACK);
-  epaper.drawLine(centerX - 18, baseY - 10, centerX - 4, baseY, TFT_BLACK);
-  epaper.drawLine(centerX - 38, baseY - 12, centerX - 48, baseY, TFT_BLACK);
-  epaper.drawLine(centerX - 18, baseY - 42, centerX - 2, baseY - 34, TFT_BLACK);
-  epaper.drawLine(centerX - 36, baseY - 44, centerX - 50, baseY - 38, TFT_BLACK);
-  epaper.drawLine(centerX - 30, baseY - 30, centerX - 14, baseY - 18, TFT_BLACK);
-  epaper.drawLine(centerX - 34, baseY - 32, centerX - 48, baseY - 22, TFT_BLACK);
-  epaper.drawLine(centerX + 14, baseY - 74, centerX + 16, baseY - 48, TFT_BLACK);
-  epaper.drawLine(centerX + 10, baseY - 74, centerX + 6, baseY - 50, TFT_BLACK);
-  epaper.drawLine(centerX + 16, baseY - 48, centerX + 18, baseY - 14, TFT_BLACK);
-  epaper.drawLine(centerX + 6, baseY - 50, centerX + 2, baseY - 16, TFT_BLACK);
-  epaper.drawLine(centerX + 18, baseY - 14, centerX + 32, baseY - 4, TFT_BLACK);
-  epaper.drawLine(centerX + 2, baseY - 16, centerX - 12, baseY - 2, TFT_BLACK);
-  epaper.drawLine(centerX + 14, baseY - 46, centerX + 30, baseY - 38, TFT_BLACK);
-  epaper.drawLine(centerX + 4, baseY - 48, centerX - 12, baseY - 40, TFT_BLACK);
-  epaper.drawLine(centerX + 16, baseY - 32, centerX + 32, baseY - 20, TFT_BLACK);
-  epaper.drawLine(centerX + 2, baseY - 34, centerX - 14, baseY - 22, TFT_BLACK);
-  drawCentered("KM", centerX, baseY - 104, 2);
+  const int centerY = kRunnersJournalMenuCard.y + kMenuPreviewSize / 2;
+  // Single clean runner: head, torso lean, legs and arms as a few bold strokes.
+  epaper.fillCircle(centerX - 12, centerY - 56, 11, TFT_BLACK);
+  epaper.drawLine(centerX - 14, centerY - 42, centerX + 4, centerY - 12,
+                  TFT_BLACK);
+  epaper.drawWideLine(centerX - 14, centerY - 42, centerX + 4, centerY - 12,
+                      5, TFT_BLACK);
+  epaper.drawWideLine(centerX + 4, centerY - 12, centerX - 26, centerY + 6,
+                      4, TFT_BLACK);
+  epaper.drawWideLine(centerX + 4, centerY - 12, centerX + 34, centerY + 26,
+                      4, TFT_BLACK);
+  epaper.drawWideLine(centerX - 10, centerY - 34, centerX - 40, centerY - 18,
+                      4, TFT_BLACK);
+  epaper.drawWideLine(centerX - 10, centerY - 34, centerX + 20, centerY - 26,
+                      4, TFT_BLACK);
+  epaper.drawFastHLine(centerX - 56, centerY + 34, 112, TFT_BLACK);
+  drawCentered("KM", centerX + 44, centerY - 76, 2);
 }
 
 void arrangeMenuCards() {
@@ -1188,8 +1155,7 @@ void drawRepoQr() {
 
 void drawSleepSplash() {
   epaper.fillSprite(TFT_WHITE);
-  drawArcadeLogo(kScreenWidth / 2, 390, 280);
-  drawStickyArcadeBrand(525, 6);
+  drawStickyArcadeBrand(390, 6);
   drawRepoQr();
 }
 
@@ -1198,8 +1164,7 @@ void drawChargeSplash(int batteryPercent) {
   drawCentered(tr(TextId::BatteryLow), kScreenWidth / 2, 130, 4);
   drawCentered(String(batteryPercent) + "% " + tr(TextId::Remaining),
                kScreenWidth / 2, 180, 4);
-  drawArcadeLogo(kScreenWidth / 2, 390, 280);
-  drawStickyArcadeBrand(500, 4);
+  drawStickyArcadeBrand(390, 6);
 }
 
 String fitReaderText(String text, int maximumWidth, int builtInFont = 0) {
@@ -2248,7 +2213,7 @@ void runConfigPortalAndReboot() {
 
   config_portal::Config portalCfg;
   portalCfg.wifiSchema = &config_portal::kWifiSchema;
-  portalCfg.appName = "sticky arcade";
+  portalCfg.appName = "Runners Journal";
   portalCfg.useAutoApPassword = true;
   portalCfg.wifiFallback = [](const char* key) -> String {
     if (strcmp(key, "ssid") == 0) return String(sticky_wifi::ssid());
@@ -2264,7 +2229,7 @@ void runConfigPortalAndReboot() {
 
   config_portal::ui::RenderInfo info;
   info.modelLabel = "reTerminal E1005";
-  info.title = "Løpedagbok";
+  info.title = "Runners Journal";
   info.tagline = "Koble til for å sette Wi-Fi";
   info.ssid = config_portal::currentSsid();
   info.wifiPassword = config_portal::currentApPassword();

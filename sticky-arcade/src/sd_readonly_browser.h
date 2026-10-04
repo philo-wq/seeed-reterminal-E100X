@@ -30,5 +30,6 @@ class SdReadonlyBrowser {
   bool truncated_ = false;
 
   static bool isEpub(const String& name);
+  static bool isSystemDirectoryName(const String& name);
   static bool precedes(const Entry& left, const Entry& right);
 };

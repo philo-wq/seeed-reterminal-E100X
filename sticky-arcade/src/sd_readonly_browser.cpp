@@ -13,6 +13,11 @@ String baseName(const String& path) {
 
 }  // namespace
 
+bool SdReadonlyBrowser::isSystemDirectoryName(const String& name) {
+  return name == "fonts" || name == "logs" || name == "thumb_cache" ||
+         name == "update.old" || name == "update.bak";
+}
+
 bool SdReadonlyBrowser::isEpub(const String& name) {
   String lower = name;
   lower.toLowerCase();
@@ -55,8 +60,12 @@ bool SdReadonlyBrowser::open(const String& requestedPath) {
     const String rawName = file.name();
     const String name = baseName(rawName);
     const bool directoryEntry = file.isDirectory();
+    // Firmware-owned folders (fonts, logs, OTA leftovers) are noise for a
+    // book picker; hide them at the SD root so the browser lists books only.
+    const bool systemDirectory =
+        directoryEntry && path_ == "/" && isSystemDirectoryName(name);
     const bool visible =
-        !name.isEmpty() && name[0] != '.' &&
+        !name.isEmpty() && name[0] != '.' && !systemDirectory &&
         (directoryEntry || isEpub(name));
     if (visible) {
       if (count_ >= kMaximumEntries) {
