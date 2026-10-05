@@ -334,6 +334,8 @@ namespace epub_resume {
 namespace {
 constexpr const char* kNamespace = "epub";
 constexpr const char* kBookKey = "last";
+constexpr const char* kChapterKey = "chapter";
+constexpr const char* kPageKey = "page";
 String cached;
 bool loaded = false;
 
@@ -355,6 +357,32 @@ void saveIfChanged(const String& path) {
 // menu resumes it instead of landing on the file list.
 void note(const String& path) { saveIfChanged(path); }
 
+// Persist the reading position (chapter + byte offset) so a full power
+// cycle resumes the same page, not just the same book.
+void savePosition(int chapter, size_t pageStart) {
+  Preferences prefs;
+  if (!prefs.begin(kNamespace, /*readOnly=*/false)) return;
+  prefs.putUInt(kChapterKey, static_cast<uint32_t>(chapter));
+  prefs.putUInt(kPageKey, static_cast<uint32_t>(pageStart));
+  prefs.end();
+}
+
+struct Position {
+  int chapter = 0;
+  size_t pageStart = 0;
+};
+
+Position position() {
+  Position out;
+  Preferences prefs;
+  if (prefs.begin(kNamespace, /*readOnly=*/true)) {
+    out.chapter = static_cast<int>(prefs.getUInt(kChapterKey, 0));
+    out.pageStart = static_cast<size_t>(prefs.getUInt(kPageKey, 0));
+    prefs.end();
+  }
+  return out;
+}
+
 const String& last() {
   if (!loaded) {
     loaded = true;
@@ -371,6 +399,7 @@ String readerFolderCoverPath;
 EpubChapterText readerChapterText;
 bool readerChapterRequiresNonAscii = false;
 bool readerChapterRequiresCjk = false;
+bool readerChapterUsesEmbeddedLatin = false;
 int readerChapterIndex = 0;
 size_t readerPageStart = 0;
 bool readerCoverVisible = false;
@@ -538,6 +567,7 @@ void saveResumeState() {
   }
   state.checksum = stateChecksum(state);
   persistedState = state;
+  epub_resume::savePosition(readerChapterIndex, readerPageStart);
 }
 
 bool restoreResumeState() {
@@ -1381,6 +1411,25 @@ size_t readerCharacterWidth(uint32_t codepoint,
   return readerGlyphWidth(codepoint, style, true);
 }
 
+// Width estimator for pages that render with the SD smooth font
+// (sans_bold_24 / epub_cjk_24) instead of the embedded Latin font.
+// The embedded advance tables under-measure those fonts (e.g. a digit
+// advances 13 px in Noto Serif but 17 px in sans_bold_24), so paginating
+// with the embedded metrics packed more text per line than the render
+// font could fit and lines ran past the right margin. The fallback
+// maximum-advance table matches the SD 24 px fonts exactly.
+size_t readerSmoothCharacterWidth(uint32_t codepoint,
+                                  epub_text::TextStyle style) {
+  return readerGlyphWidth(codepoint, style, false);
+}
+
+// Pagination must measure with the metrics of the font that will actually
+// render the chapter, or the drawn lines disagree with the wrap points.
+epub_text::CharacterWidth readerPaginationCharacterWidth() {
+  return readerChapterUsesEmbeddedLatin ? readerCharacterWidth
+                                        : readerSmoothCharacterWidth;
+}
+
 bool sdCardInserted() {
   pinMode(board::PIN_SD_DETECT, INPUT_PULLUP);
   delayMicroseconds(50);
@@ -1440,6 +1489,7 @@ void clearReaderStorageState() {
   readerChapterText.clear();
   readerChapterRequiresNonAscii = false;
   readerChapterRequiresCjk = false;
+  readerChapterUsesEmbeddedLatin = false;
   readerBookPath = "";
   readerFolderCoverPath = "";
   readerPageStart = 0;
@@ -1692,7 +1742,7 @@ uint32_t readerPageNumber() {
     const epub_text::TextPage page = epub_text::paginate(
         readerChapterText.c_str(), readerChapterText.length(), offset,
         kReaderTextWidth, kReaderLinesPerPage, style, true,
-        readerCharacterWidth);
+        readerPaginationCharacterWidth());
     if (page.end <= offset || page.end > readerPageStart) break;
     offset = page.end;
     style = page.finalStyle;
@@ -1975,6 +2025,7 @@ bool openReaderBrowserPath(const String& path) {
   readerChapterText.clear();
   readerChapterRequiresNonAscii = false;
   readerChapterRequiresCjk = false;
+  readerChapterUsesEmbeddedLatin = false;
   readerBookPath = "";
   readerFolderCoverPath = "";
   readerPageStart = 0;
@@ -1994,6 +2045,9 @@ bool loadReaderChapter(int chapter, size_t pageStart = 0) {
   readerChapterRequiresCjk =
       epub_text::containsCjk(readerChapterText.c_str(),
                              readerChapterText.length());
+  readerChapterUsesEmbeddedLatin =
+      usesEmbeddedReaderFont(readerChapterText.c_str(),
+                             readerChapterText.length());
   readerChapterIndex = chapter;
   readerPageStart =
       pageStart < readerChapterText.length() ? pageStart : 0;
@@ -2007,6 +2061,7 @@ bool openReaderBook(const String& path, int chapter = 0,
   readerChapterText.clear();
   readerChapterRequiresNonAscii = false;
   readerChapterRequiresCjk = false;
+  readerChapterUsesEmbeddedLatin = false;
   readerCoverVisible = false;
   readerFolderCoverPath = "";
   LOG.printf(
@@ -2598,8 +2653,11 @@ void launchGame(GameId game) {
   switch (game) {
     case GameId::EpubReader: {
       const String last = epub_resume::last();
+      const epub_resume::Position saved = epub_resume::position();
+      const bool fresh = saved.chapter == 0 && saved.pageStart == 0;
       if (!last.isEmpty() && SD.exists(last) &&
-          openReaderBook(last)) {
+          openReaderBook(last, saved.chapter, saved.pageStart, true,
+                         fresh)) {
         showEpubReading();
       } else {
         if (!last.isEmpty()) epub_resume::note("");
@@ -2699,7 +2757,7 @@ size_t lastReaderPageStart() {
     const epub_text::TextPage page = epub_text::paginate(
         readerChapterText.c_str(), readerChapterText.length(), offset,
         kReaderTextWidth, kReaderLinesPerPage, style, true,
-        readerCharacterWidth);
+        readerPaginationCharacterWidth());
     if (page.end <= offset || page.end >= readerChapterText.length()) {
       return last;
     }
@@ -2719,7 +2777,8 @@ void showPreviousReaderPage() {
   if (readerPageStart > 0) {
     readerPageStart = epub_text::previousPageStart(
         readerChapterText.c_str(), readerChapterText.length(), readerPageStart,
-        kReaderTextWidth, kReaderLinesPerPage, readerCharacterWidth);
+        kReaderTextWidth, kReaderLinesPerPage,
+        readerPaginationCharacterWidth());
     showEpubReading();
     return;
   }

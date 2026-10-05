@@ -593,17 +593,25 @@ inline void renderJournal(EPaper& epaper, SmoothFont& font,
   const int lineH = textHeight(epaper, font) + LINE_GAP;
   const int maxW = config::PANEL_WIDTH - 2 * MARGIN;
   const int bottomLimit = config::PANEL_HEIGHT - MARGIN;
-  const size_t toShow =
-      data.journal.size() > 9 ? 9 : data.journal.size();
-  for (size_t i = 0; i < toShow; ++i) {
+  // Adaptive entry count: keep filling entries until the panel is full
+  // instead of a fixed nine. Long notes wrap and naturally reduce how
+  // many entries fit; short notes let more entries in. The bottom clamp
+  // guarantees nothing is drawn past the panel margin.
+  const size_t count = data.journal.size();
+  for (size_t i = 0; i < count; ++i) {
     const dashboard::JournalEntry& j = data.journal[i];
-
+    // Separator between entries (except before the first).
+    if (i > 0) {
+      if (y + LINE_GAP > bottomLimit) break;
+      drawHairline(epaper, y);
+      y += LINE_GAP * 2;
+    }
+    if (y + lineH > bottomLimit) break;
     // Date + type header, truncated so it never leaves the panel.
     const String head = j.dato + "  " + j.type;
     drawText(epaper, font, fitText(epaper, font, head, maxW),
              MARGIN, y, FontSize::Small);
     y += lineH;
-    if (y > bottomLimit) break;
 
     // Note: word-wrap to panel width (unbreakable words hard-split).
     std::vector<String> noteLines;
@@ -615,11 +623,6 @@ inline void renderJournal(EPaper& epaper, SmoothFont& font,
     }
 
     y += LINE_GAP;
-    if (i + 1 < toShow) {
-      if (y + LINE_GAP > bottomLimit) break;
-      drawHairline(epaper, y);
-      y += LINE_GAP * 2;
-    }
   }
   font.unload();
 }
