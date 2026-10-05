@@ -27,6 +27,10 @@ constexpr uint16_t INK_FAINT = TFT_BLACK;      // tynn skillelinje
 
 constexpr int MARGIN = 16;
 constexpr int LINE_GAP = 6;
+// Glyph ink can extend a few pixels past the pen advance (bold/italic
+// tails, 'T', 'Y', 'k' in sans_bold), so wrapped text keeps a small
+// right inset to stay inside the panel edge.
+constexpr int TEXT_SAFETY_INSET = 4;
 
 // Text sizes for the SD smooth-font path. Medium/Large/Huge tiers were
 // removed by the single-font performance policy; large hero numerals go
@@ -524,7 +528,8 @@ inline void renderSiste(EPaper& epaper, SmoothFont& font,
 
   font.load(FontSize::Small);
   const int lineH = textHeight(epaper, font) + LINE_GAP;
-  const int maxW = config::PANEL_WIDTH - 2 * MARGIN;
+  const int maxW =
+      config::PANEL_WIDTH - 2 * MARGIN - TEXT_SAFETY_INSET;
   const int bottomLimit = config::PANEL_HEIGHT - MARGIN;
   const size_t runsToShow =
       data.siste_lop.size() > 9 ? 9 : data.siste_lop.size();
@@ -591,7 +596,8 @@ inline void renderJournal(EPaper& epaper, SmoothFont& font,
   }
 
   const int lineH = textHeight(epaper, font) + LINE_GAP;
-  const int maxW = config::PANEL_WIDTH - 2 * MARGIN;
+  const int maxW =
+      config::PANEL_WIDTH - 2 * MARGIN - TEXT_SAFETY_INSET;
   const int bottomLimit = config::PANEL_HEIGHT - MARGIN;
   // Adaptive entry count: keep filling entries until the panel is full
   // instead of a fixed nine. Long notes wrap and naturally reduce how
@@ -766,7 +772,8 @@ inline void renderStatus(EPaper& epaper, SmoothFont& font,
            FontSize::Small);
   y += textHeight(epaper, font) + LINE_GAP * 4;
   font.load(FontSize::Small);
-  const int maxW = config::PANEL_WIDTH - 2 * MARGIN;
+  const int maxW =
+      config::PANEL_WIDTH - 2 * MARGIN - TEXT_SAFETY_INSET;
   String line;
   line.reserve(detail.length());
   for (int ci = 0; ci < static_cast<int>(detail.length()); ++ci) {
