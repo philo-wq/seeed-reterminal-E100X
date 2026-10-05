@@ -91,6 +91,6 @@ jobs:
         with:
           name: firmware-reterminal_e1005
           path: |
-            .pio/build/reterminal_e1005/firmware.bin
-            .pio/build/reterminal_e1005/bootloader.bin
-            .pio/build/reterminal_e1005/partitions.bin
+            sticky-arcade/.pio/build/reterminal_e1005/firmware.bin
+            sticky-arcade/.pio/build/reterminal_e1005/bootloader.bin
+            sticky-arcade/.pio/build/reterminal_e1005/partitions.bin
