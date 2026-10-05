@@ -5,11 +5,13 @@ on:
     paths:
       - "sticky-arcade/**"
       - "common/**"
+      - "common-config-portal/**"
       - ".github/workflows/sticky-arcade-build.yml"
   pull_request:
     paths:
       - "sticky-arcade/**"
       - "common/**"
+      - "common-config-portal/**"
       - ".github/workflows/sticky-arcade-build.yml"
   workflow_dispatch:
 
@@ -83,3 +85,12 @@ jobs:
 
       - name: Build
         run: pio run -e reterminal_e1005
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: firmware-reterminal_e1005
+          path: |
+            .pio/build/reterminal_e1005/firmware.bin
+            .pio/build/reterminal_e1005/bootloader.bin
+            .pio/build/reterminal_e1005/partitions.bin
