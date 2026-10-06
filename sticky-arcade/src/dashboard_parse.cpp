@@ -97,6 +97,32 @@ void parseRuter(const JsonArray& arr, std::vector<RouteEntry>& out) {
   }
 }
 
+void parsePunktArray(const JsonArray& arr, std::vector<RoutePoint>& out) {
+  out.clear();
+  out.reserve(arr.size() > 64 ? 64 : arr.size());
+  for (const JsonVariant& p : arr) {
+    const JsonArray& pair = p.as<JsonArray>();
+    if (pair.isNull() || pair.size() < 2) continue;
+    const float lat = pair[0] | 0.0f;
+    const float lng = pair[1] | 0.0f;
+    if (lat == 0.0f && lng == 0.0f) continue;
+    out.push_back({lat, lng});
+  }
+}
+
+void parseKartFeatureList(const JsonArray& arr,
+                          std::vector<std::vector<RoutePoint>>& out) {
+  out.clear();
+  out.reserve(arr.size());
+  for (const JsonVariant& v : arr) {
+    const JsonArray& line = v.as<JsonArray>();
+    if (line.isNull() || line.size() < 2) continue;
+    std::vector<RoutePoint> pts;
+    parsePunktArray(line, pts);
+    if (pts.size() >= 2) out.push_back(std::move(pts));
+  }
+}
+
 }  // namespace
 
 bool parse(const String& body, DashboardData& out) {
@@ -136,6 +162,17 @@ bool parse(const String& body, DashboardData& out) {
 
   const JsonArray ruter = root["ruter"];
   if (!ruter.isNull()) parseRuter(ruter, out.ruter);
+
+  const JsonObject kart = root["kart"];
+  if (!kart.isNull()) {
+    out.kart.finnes = true;
+    const JsonArray stier = kart["stier"];
+    if (!stier.isNull()) parseKartFeatureList(stier, out.kart.stier);
+    const JsonArray vann = kart["vann"];
+    if (!vann.isNull()) parseKartFeatureList(vann, out.kart.vann);
+    const JsonArray skog = kart["skog"];
+    if (!skog.isNull()) parseKartFeatureList(skog, out.kart.skog);
+  }
 
   return true;
 }

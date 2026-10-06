@@ -58,6 +58,13 @@ struct RouteEntry {
   std::vector<RoutePoint> rute;
 };
 
+struct KartUnderlag {
+  std::vector<std::vector<RoutePoint>> stier;
+  std::vector<std::vector<RoutePoint>> vann;
+  std::vector<std::vector<RoutePoint>> skog;
+  bool finnes = false;
+};
+
 struct DashboardData {
   String oppdatert;
   uint32_t neste_oppvakning_s = 0;
@@ -69,6 +76,7 @@ struct DashboardData {
   std::vector<RunEntry> siste_lop;
   std::vector<JournalEntry> journal;
   std::vector<RouteEntry> ruter;
+  KartUnderlag kart;
 };
 
 }  // namespace dashboard

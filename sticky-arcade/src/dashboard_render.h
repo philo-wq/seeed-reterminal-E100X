@@ -13,6 +13,7 @@
 #include <Arduino.h>
 #include <SD.h>
 #include <TFT_eSPI.h>
+#include <utility>
 #include <vector>
 
 #include "runners_journal_config.h"
@@ -746,6 +747,19 @@ inline void renderKart(EPaper& epaper, SmoothFont& font,
       if (p.lng > maxLng) maxLng = p.lng;
     }
   }
+  if (data.kart.finnes) {
+    const auto includeLine = [&](const std::vector<dashboard::RoutePoint>& line) {
+      for (const dashboard::RoutePoint& p : line) {
+        if (p.lat < minLat) minLat = p.lat;
+        if (p.lat > maxLat) maxLat = p.lat;
+        if (p.lng < minLng) minLng = p.lng;
+        if (p.lng > maxLng) maxLng = p.lng;
+      }
+    };
+    for (const auto& line : data.kart.stier) includeLine(line);
+    for (const auto& line : data.kart.vann) includeLine(line);
+    for (const auto& line : data.kart.skog) includeLine(line);
+  }
   const float kLatScale = 0.5f;
   const float latSpan = (maxLat - minLat) * kLatScale;
   const float lngSpan = maxLng - minLng;
@@ -788,26 +802,62 @@ inline void renderKart(EPaper& epaper, SmoothFont& font,
   epaper.drawRect(tileX + 1, tileY + 1, tileW - 2, tileH - 2, INK);
   epaper.drawRect(tileX + 5, tileY + 5, tileW - 10, tileH - 10, INK);
 
-  // Deterministic terrain decoration inside the inner frame.
   uint32_t rng = 0x1234abcdu;
   const int inX = tileX + 8, inY = tileY + 8;
   const int inW = tileW - 16, inH = tileH - 16;
 
-  // Hachure strokes: short diagonal tick marks, Tolkien-contour style.
-  for (int i = 0; i < 26; ++i) {
-    const int hx = inX + static_cast<int>(kartRand(rng) % inW);
-    const int hy = inY + static_cast<int>(kartRand(rng) % inH);
-    for (int s = 0; s < 5; ++s) {
-      epaper.drawLine(hx + s * 9, hy + s * 3, hx + s * 9 + 6, hy + s * 3 + 2,
-                      INK);
-    }
-  }
+  // Real OSM underlay when available (server-side Overpass fetch);
+  // otherwise fall back to the decorative deterministic terrain.
+  const auto pxOf = [&](float lat, float lng) {
+    return std::pair<int, int>(
+        offX + static_cast<int>((lng - minLng) * kLatScale * scale),
+        offY + static_cast<int>((maxLat - lat) * scale));
+  };
 
-  // Trees: sparse, off the routes' direct path so they read as forest.
-  for (int i = 0; i < 30; ++i) {
-    const int tx = inX + static_cast<int>(kartRand(rng) % inW);
-    const int ty = inY + 12 + static_cast<int>(kartRand(rng) % (inH - 12));
-    if ((kartRand(rng) & 1) == 0) drawKartTree(epaper, tx, ty, rng);
+  if (data.kart.finnes) {
+    // Skog (forest polygons): tree symbols at a few points inside each polygon.
+    for (const auto& poly : data.kart.skog) {
+      for (size_t i = 0; i < poly.size(); i += poly.size() / 3 + 1) {
+        const auto [x, y] = pxOf(poly[i].lat, poly[i].lng);
+        if (x > inX && x < inX + inW && y > inY && y < inY + inH) {
+          drawKartTree(epaper, x, y, rng);
+        }
+      }
+    }
+    // Vann (water outlines): dashed outline, 1 px.
+    for (const auto& line : data.kart.vann) {
+      for (size_t i = 1; i < line.size(); ++i) {
+        if ((i % 2) == 0) continue;
+        const auto [x1, y1] = pxOf(line[i - 1].lat, line[i - 1].lng);
+        const auto [x2, y2] = pxOf(line[i].lat, line[i].lng);
+        epaper.drawLine(x1, y1, x2, y2, INK);
+      }
+    }
+    // Stier (paths): dotted, every other segment, thin.
+    for (const auto& line : data.kart.stier) {
+      for (size_t i = 1; i < line.size(); ++i) {
+        if ((i % 2) == 0) continue;
+        const auto [x1, y1] = pxOf(line[i - 1].lat, line[i - 1].lng);
+        const auto [x2, y2] = pxOf(line[i].lat, line[i].lng);
+        epaper.drawLine(x1, y1, x2, y2, INK);
+      }
+    }
+  } else {
+    // Hachure strokes: short diagonal tick marks, Tolkien-contour style.
+    for (int i = 0; i < 26; ++i) {
+      const int hx = inX + static_cast<int>(kartRand(rng) % inW);
+      const int hy = inY + static_cast<int>(kartRand(rng) % inH);
+      for (int s = 0; s < 5; ++s) {
+        epaper.drawLine(hx + s * 9, hy + s * 3, hx + s * 9 + 6, hy + s * 3 + 2,
+                        INK);
+      }
+    }
+    // Trees: sparse, off the routes' direct path so they read as forest.
+    for (int i = 0; i < 30; ++i) {
+      const int tx = inX + static_cast<int>(kartRand(rng) % inW);
+      const int ty = inY + 12 + static_cast<int>(kartRand(rng) % (inH - 12));
+      if ((kartRand(rng) & 1) == 0) drawKartTree(epaper, tx, ty, rng);
+    }
   }
 
   drawKartCompass(epaper, tileX + tileW - 40, tileY + 44);
