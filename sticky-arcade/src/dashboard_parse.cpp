@@ -78,6 +78,7 @@ void parseRuter(const JsonArray& arr, std::vector<RouteEntry>& out) {
     const JsonObject& o = v.as<JsonObject>();
     if (o.isNull()) continue;
     RouteEntry e;
+    e.navn = o["navn"] | "";
     e.type = o["type"] | "";
     const JsonArray rute = o["rute"];
     if (rute.isNull() || rute.size() < 2) continue;

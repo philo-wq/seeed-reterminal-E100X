@@ -633,24 +633,105 @@ inline void renderJournal(EPaper& epaper, SmoothFont& font,
   font.unload();
 }
 
-// Ukeskart: render the week's GPS routes on a projected map tile.
-// Equirectangular projection with a fixed latitude scale factor (valid
-// around Oslo, ~59.9N); line style encodes run type; a 3x3 start marker
-// marks each route's first point. Routes arrive oldest-first, and draw
-// order preserves that.
+// ---- Ukeskart / Tolkien-kart helpers ---------------------------------
+
+// 16-bit xorshift: deterministic pseudo-random numbers so the terrain
+// decoration (hachures, trees) is identical between refreshes of the same
+// week instead of flickering between renders.
+inline uint32_t kartRand(uint32_t& state) {
+  state ^= state << 13;
+  state ^= state >> 17;
+  state ^= state << 5;
+  return state;
+}
+
+// Small tree symbol: trunk + roughly circular scribbled canopy, the
+// Tolkien prototype's tree rendered as a 1-bit glyph.
+template <typename EPaper>
+inline void drawKartTree(EPaper& epaper, int x, int y, uint32_t& rng) {
+  epaper.drawLine(x, y, x, y - 4, INK);
+  const int r = 2 + static_cast<int>(kartRand(rng) % 2);
+  for (int dy = -r - 2; dy <= -2; ++dy) {
+    const int span = r - 2 + (dy + r + 2) / 2;
+    for (int dx = -span; dx <= span; ++dx) {
+      if ((kartRand(rng) & 3) != 0) {
+        epaper.drawPixel(x + dx, y + dy, INK);
+      }
+    }
+  }
+}
+
+// Compass rose: two circles, 4-point star, N marker.
+template <typename EPaper>
+inline void drawKartCompass(EPaper& epaper, int cx, int cy) {
+  for (int r = 20; r <= 24; r += 4) {
+    for (int a = 0; a < 360; a += 4) {
+      const float rad = a * 0.017453f;
+      epaper.drawPixel(cx + static_cast<int>(r * cosf(rad)),
+                       cy + static_cast<int>(r * sinf(rad)), INK);
+    }
+  }
+  epaper.drawLine(cx, cy - 26, cx, cy + 26, INK);
+  epaper.drawLine(cx - 26, cy, cx + 26, cy, INK);
+  epaper.drawLine(cx - 18, cy - 18, cx + 18, cy + 18, INK);
+  epaper.drawLine(cx - 18, cy + 18, cx + 18, cy - 18, INK);
+  epaper.fillRect(cx - 2, cy - 30, 5, 7, INK);
+}
+
+// Stylized dragon guarding the longest run: a small winged silhouette
+// drawn with line segments, head at (x, y).
+template <typename EPaper>
+inline void drawKartDragon(EPaper& epaper, int x, int y) {
+  epaper.drawLine(x, y, x - 12, y + 4, INK);
+  epaper.drawLine(x - 12, y + 4, x - 20, y + 2, INK);
+  epaper.drawLine(x - 20, y + 2, x - 26, y + 6, INK);
+  epaper.drawLine(x - 26, y + 6, x - 14, y + 9, INK);
+  epaper.drawLine(x - 14, y + 9, x, y + 5, INK);
+  epaper.drawLine(x, y + 5, x, y, INK);
+  epaper.drawLine(x - 12, y + 4, x - 16, y - 5, INK);
+  epaper.drawLine(x - 16, y - 5, x - 24, y - 4, INK);
+  epaper.drawLine(x - 24, y - 4, x - 16, y - 1, INK);
+  epaper.drawLine(x - 16, y - 1, x - 12, y + 4, INK);
+  epaper.drawPixel(x + 2, y - 1, INK);
+}
+
+// Ukeskart: render the week's GPS routes as a Tolkien-style mono map —
+// double frame, cartouche header, compass rose, hachure terrain, tree
+// symbols, route labels, and a dragon guarding the longest run. Routes
+// are solid regardless of type on the 1-bpp panel (dashes lose the
+// hand-drawn look); the style guide's per-type dashes return with the
+// Spectra 6 color panel in Fase 5.
 template <typename EPaper>
 inline void renderKart(EPaper& epaper, SmoothFont& font,
                        const dashboard::DashboardData& data) {
   clearPanel(epaper);
-  const String title = String("Ukeskart - ") + data.uke.merkelapp;
-  drawHeader(epaper, font, title, data.oppdatert);
+
+  const String title = "Villmarkene";
+  const String week = data.uke.merkelapp;
   font.load(FontSize::Small);
-  int y = MARGIN + textHeight(epaper, font) + LINE_GAP * 3;
+
+  // Cartouche: centered serif-style title with the week label beneath.
+  {
+    const int titleW = textWidth(epaper, font, title);
+    const int weekW = textWidth(epaper, font, week);
+    drawText(epaper, font, title, (config::PANEL_WIDTH - titleW) / 2,
+             MARGIN, FontSize::Small);
+    epaper.fillRect((config::PANEL_WIDTH - 90) / 2,
+                    MARGIN + textHeight(epaper, font) + 2, 90, 2, INK);
+    drawText(epaper, font, week, (config::PANEL_WIDTH - weekW) / 2,
+             MARGIN + textHeight(epaper, font) + 8, FontSize::Small);
+  }
+
+  int y = MARGIN + 2 * textHeight(epaper, font) + 24;
 
   if (data.ruter.empty()) {
     const String msg = "Ingen GPS-ruter denne uka";
     const int w = textWidth(epaper, font, msg);
     drawText(epaper, font, msg, (config::PANEL_WIDTH - w) / 2, y + 40,
+             FontSize::Small);
+    const String sub = "Her er fortsatt villmark";
+    const int sw = textWidth(epaper, font, sub);
+    drawText(epaper, font, sub, (config::PANEL_WIDTH - sw) / 2, y + 70,
              FontSize::Small);
     font.unload();
     return;
@@ -665,7 +746,6 @@ inline void renderKart(EPaper& epaper, SmoothFont& font,
       if (p.lng > maxLng) maxLng = p.lng;
     }
   }
-  const float midLat = (minLat + maxLat) / 2.0f;
   const float kLatScale = 0.5f;
   const float latSpan = (maxLat - minLat) * kLatScale;
   const float lngSpan = maxLng - minLng;
@@ -702,32 +782,42 @@ inline void renderKart(EPaper& epaper, SmoothFont& font,
       tileY + static_cast<int>((tileH - spanLat * scale) / 2.0f);
 
   epaper.fillRect(tileX, tileY, tileW, tileH, PAPER);
+
+  // Double decorative frame: 2px outer + 1px inner, 4px apart.
   epaper.drawRect(tileX, tileY, tileW, tileH, INK);
+  epaper.drawRect(tileX + 1, tileY + 1, tileW - 2, tileH - 2, INK);
+  epaper.drawRect(tileX + 5, tileY + 5, tileW - 10, tileH - 10, INK);
 
-  struct Style {
-    bool solid;
-    int skip;
-  };
-  const Style fallback{true, 0};
-  const Style solid{true, 0};
-  const Style dashed{true, 4};
-  const Style dotted{true, 2};
+  // Deterministic terrain decoration inside the inner frame.
+  uint32_t rng = 0x1234abcdu;
+  const int inX = tileX + 8, inY = tileY + 8;
+  const int inW = tileW - 16, inH = tileH - 16;
 
-  for (const dashboard::RouteEntry& r : data.ruter) {
-    Style style = fallback;
-    bool startMarker = false;
-    if (r.type == "long") {
-      style = solid;
-    } else if (r.type == "interval") {
-      style = dashed;
-    } else if (r.type == "recovery") {
-      style = dotted;
-    } else if (r.type == "race") {
-      style = solid;
-      startMarker = true;
+  // Hachure strokes: short diagonal tick marks, Tolkien-contour style.
+  for (int i = 0; i < 26; ++i) {
+    const int hx = inX + static_cast<int>(kartRand(rng) % inW);
+    const int hy = inY + static_cast<int>(kartRand(rng) % inH);
+    for (int s = 0; s < 5; ++s) {
+      epaper.drawLine(hx + s * 9, hy + s * 3, hx + s * 9 + 6, hy + s * 3 + 2,
+                      INK);
     }
+  }
+
+  // Trees: sparse, off the routes' direct path so they read as forest.
+  for (int i = 0; i < 30; ++i) {
+    const int tx = inX + static_cast<int>(kartRand(rng) % inW);
+    const int ty = inY + 12 + static_cast<int>(kartRand(rng) % (inH - 12));
+    if ((kartRand(rng) & 1) == 0) drawKartTree(epaper, tx, ty, rng);
+  }
+
+  drawKartCompass(epaper, tileX + tileW - 40, tileY + 44);
+
+  // Routes: solid 1px lines with a 3x3 start marker; keep the longest
+  // route's end point for the dragon.
+  int dragonX = -100, dragonY = -100;
+  size_t longestPts = 0;
+  for (const dashboard::RouteEntry& r : data.ruter) {
     for (size_t i = 1; i < r.rute.size(); ++i) {
-      if (style.skip > 0 && (i % style.skip) == 0) continue;
       const dashboard::RoutePoint& a = r.rute[i - 1];
       const dashboard::RoutePoint& b = r.rute[i];
       const int x1 = offX + static_cast<int>((a.lng - minLng) * kLatScale * scale);
@@ -736,12 +826,51 @@ inline void renderKart(EPaper& epaper, SmoothFont& font,
       const int y2 = offY + static_cast<int>((maxLat - b.lat) * scale);
       epaper.drawLine(x1, y1, x2, y2, INK);
     }
-    if (startMarker && !r.rute.empty()) {
+    if (!r.rute.empty()) {
       const dashboard::RoutePoint& p = r.rute.front();
       const int px = offX + static_cast<int>((p.lng - minLng) * kLatScale * scale);
       const int py = offY + static_cast<int>((maxLat - p.lat) * scale);
       epaper.fillRect(px - 1, py - 1, 3, 3, INK);
     }
+    if (r.rute.size() > longestPts) {
+      longestPts = r.rute.size();
+      const dashboard::RoutePoint& p = r.rute.back();
+      dragonX = offX + static_cast<int>((p.lng - minLng) * kLatScale * scale);
+      dragonY = offY + static_cast<int>((maxLat - p.lat) * scale);
+    }
+  }
+
+  // Route name labels at each route's midpoint.
+  for (const dashboard::RouteEntry& r : data.ruter) {
+    if (r.navn.isEmpty() || r.rute.size() < 2) continue;
+    const dashboard::RoutePoint& m = r.rute[r.rute.size() / 2];
+    const int lx = offX + static_cast<int>((m.lng - minLng) * kLatScale * scale);
+    const int ly = offY + static_cast<int>((maxLat - m.lat) * scale) - 14;
+    const int lw = textWidth(epaper, font, r.navn);
+    const int lx0 = lx - lw / 2;
+    if (lx0 > tileX + 10 && lx0 + lw < tileX + tileW - 10 &&
+        ly > tileY + 10 && ly < tileY + tileH - 10) {
+      epaper.fillRect(lx0 - 2, ly - 2, lw + 4, textHeight(epaper, font) + 4,
+                      PAPER);
+      drawText(epaper, font, r.navn, lx0, ly, FontSize::Small);
+    }
+  }
+
+  if (dragonX > -50) {
+    drawKartDragon(epaper, dragonX + 6, dragonY + 8);
+  }
+
+  // Footer summary, like the prototype legend line.
+  {
+    const String left = kmString(data.uke.total_km) + String(" km i uka");
+    const String right = String(static_cast<int>(data.ruter.size())) +
+                         String(" l\u00f8p tegnet");
+    const int lw = textWidth(epaper, font, left);
+    const int rw = textWidth(epaper, font, right);
+    drawText(epaper, font, left, tileX + 10,
+             config::PANEL_HEIGHT - MARGIN - 12, FontSize::Small);
+    drawText(epaper, font, right, tileX + tileW - 10 - rw,
+             config::PANEL_HEIGHT - MARGIN - 12, FontSize::Small);
   }
   font.unload();
 }

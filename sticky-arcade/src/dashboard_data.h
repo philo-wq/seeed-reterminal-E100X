@@ -53,6 +53,7 @@ struct RoutePoint {
 };
 
 struct RouteEntry {
+  String navn;
   String type;
   std::vector<RoutePoint> rute;
 };
