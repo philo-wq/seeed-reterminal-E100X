@@ -174,6 +174,18 @@ bool parse(const String& body, DashboardData& out) {
     if (!skog.isNull()) parseKartFeatureList(skog, out.kart.skog);
   }
 
+  const JsonObject kb = root["kart_bilde"];
+  if (!kb.isNull()) {
+    out.kart_bilde.finnes = true;
+    out.kart_bilde.bredde = kb["bredde"] | 0;
+    out.kart_bilde.hoyde = kb["hoyde"] | 0;
+    out.kart_bilde.min_lat = kb["min_lat"] | 0.0f;
+    out.kart_bilde.max_lat = kb["max_lat"] | 0.0f;
+    out.kart_bilde.min_lng = kb["min_lng"] | 0.0f;
+    out.kart_bilde.max_lng = kb["max_lng"] | 0.0f;
+    out.kart_bilde.data = kb["data"] | "";
+  }
+
   return true;
 }
 

@@ -696,6 +696,66 @@ inline void drawKartDragon(EPaper& epaper, int x, int y) {
   epaper.drawPixel(x + 2, y - 1, INK);
 }
 
+// Base64-decode a single char (server uses standard base64).
+inline int kartB64Val(char c) {
+  if (c >= 'A' && c <= 'Z') return c - 'A';
+  if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+  if (c >= '0' && c <= '9') return c - '0' + 52;
+  if (c == '+') return 62;
+  if (c == '/') return 63;
+  return -1;
+}
+
+// Decode the server-rendered kart_bilde (base64 RLE, byte = shade<<6 |
+// count) into a heap shade buffer (0=ink, 1=mørk grå, 2=lys grå, 3=papir).
+// Caller frees. Returns null on any malformed input.
+inline uint8_t* kartBildeDecode(const String& data, int w, int h) {
+  if (w <= 0 || h <= 0 || data.isEmpty()) return nullptr;
+  const int total = w * h;
+  uint8_t* shades = static_cast<uint8_t*>(ps_malloc(total));
+  if (shades == nullptr) {
+    shades = static_cast<uint8_t*>(malloc(total));
+  }
+  if (shades == nullptr) return nullptr;
+
+  // Base64 -> bit-akkumulator -> run-byte -> utvidede skygger.
+  uint32_t acc = 0;
+  int accBits = 0;
+  int out = 0;
+  bool done = false;
+  for (unsigned int i = 0; i < data.length() && !done; ++i) {
+    const char c = data[i];
+    if (c == '=') break;
+    const int v = kartB64Val(c);
+    if (v < 0) { free(shades); return nullptr; }
+    acc = (acc << 6) | static_cast<uint32_t>(v);
+    accBits += 6;
+    while (accBits >= 8 && !done) {
+      const uint8_t run = static_cast<uint8_t>((acc >> (accBits - 8)) & 0xFF);
+      accBits -= 8;
+      const int shade = run >> 6;
+      int count = run & 0x3F;
+      if (count == 0) { free(shades); return nullptr; }
+      if (out + count > total) count = total - out;
+      for (int n = 0; n < count; ++n) shades[out++] = shade;
+      if (out >= total) done = true;
+    }
+  }
+  if (out != total) { free(shades); return nullptr; }
+  return shades;
+}
+
+// 4x4 ordered dither (Bayer) thresholds per shade: shade 3 (papir) is
+// always paper, shade 0 always ink; 2 and 1 map to ink coverage 25% / 50%.
+inline bool kartShadePixel(uint8_t shade, int x, int y) {
+  static const uint8_t kBayer[4][4] = {
+      {0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
+  if (shade == 0) return true;
+  if (shade == 3) return false;
+  const uint8_t threshold = (shade == 2) ? 4 : 8;  // 25% / 50% ink
+  return kBayer[y & 3][x & 3] < threshold;
+}
+
 // Ukeskart: render the week's GPS routes as a Tolkien-style mono map —
 // double frame, cartouche header, compass rose, hachure terrain, tree
 // symbols, route labels, and a dragon guarding the longest run. Routes
@@ -738,6 +798,21 @@ inline void renderKart(EPaper& epaper, SmoothFont& font,
     return;
   }
 
+  constexpr int FOOTER = 24;
+  const int tileX = MARGIN;
+  const int tileY = y;
+  const int tileW = config::PANEL_WIDTH - 2 * MARGIN;
+  const int tileH = config::PANEL_HEIGHT - tileY - MARGIN - FOOTER;
+
+  // Server-rendret 4-skygge-kart: dekode, blit 2x med ordnet dithering,
+  // tegn rutene oppå med bildets projeksjons-bbox.
+  uint8_t* shades = nullptr;
+  if (data.kart_bilde.finnes && data.kart_bilde.bredde > 0 &&
+      data.kart_bilde.hoyde > 0) {
+    shades = kartBildeDecode(data.kart_bilde.data, data.kart_bilde.bredde,
+                             data.kart_bilde.hoyde);
+  }
+
   float minLat = 90.0f, maxLat = -90.0f, minLng = 180.0f, maxLng = -180.0f;
   for (const dashboard::RouteEntry& r : data.ruter) {
     for (const dashboard::RoutePoint& p : r.rute) {
@@ -747,7 +822,13 @@ inline void renderKart(EPaper& epaper, SmoothFont& font,
       if (p.lng > maxLng) maxLng = p.lng;
     }
   }
-  if (data.kart.finnes) {
+  if (shades != nullptr) {
+    // Bildets bbox (padet) er projeksjonen rutene må tegnes i.
+    minLat = data.kart_bilde.min_lat;
+    maxLat = data.kart_bilde.max_lat;
+    minLng = data.kart_bilde.min_lng;
+    maxLng = data.kart_bilde.max_lng;
+  } else if (data.kart.finnes) {
     const auto includeLine = [&](const std::vector<dashboard::RoutePoint>& line) {
       for (const dashboard::RoutePoint& p : line) {
         if (p.lat < minLat) minLat = p.lat;
@@ -764,28 +845,26 @@ inline void renderKart(EPaper& epaper, SmoothFont& font,
   const float latSpan = (maxLat - minLat) * kLatScale;
   const float lngSpan = maxLng - minLng;
 
-  constexpr int FOOTER = 24;
-  const int tileX = MARGIN;
-  const int tileY = y;
-  const int tileW = config::PANEL_WIDTH - 2 * MARGIN;
-  const int tileH = config::PANEL_HEIGHT - tileY - MARGIN - FOOTER;
-
   if (latSpan <= 0.0f || lngSpan <= 0.0f || tileW <= 0 || tileH <= 0) {
     const String msg = "Ingen GPS-ruter denne uka";
     const int w = textWidth(epaper, font, msg);
     drawText(epaper, font, msg, (config::PANEL_WIDTH - w) / 2, y + 40,
              FontSize::Small);
+    free(shades);
     font.unload();
     return;
   }
 
-  const float kPad = 0.12f;
-  const float padLat = (maxLat - minLat) * kPad;
-  const float padLng = lngSpan * kPad;
-  minLat -= padLat;
-  maxLat += padLat;
-  minLng -= padLng;
-  maxLng += padLng;
+  // Bildets bbox er allerede padet server-side; kun egen-bbox-en paddes.
+  if (shades == nullptr) {
+    const float kPad = 0.12f;
+    const float padLat = (maxLat - minLat) * kPad;
+    const float padLng = lngSpan * kPad;
+    minLat -= padLat;
+    maxLat += padLat;
+    minLng -= padLng;
+    maxLng += padLng;
+  }
   const float spanLat = (maxLat - minLat) * kLatScale;
   const float spanLng = maxLng - minLng;
   const float scale =
@@ -814,7 +893,24 @@ inline void renderKart(EPaper& epaper, SmoothFont& font,
         offY + static_cast<int>((maxLat - lat) * scale));
   };
 
-  if (data.kart.finnes) {
+  if (shades != nullptr) {
+    // Blit the server-rendered 4-shade bitmap, scaled to the tile with
+    // nearest-neighbour 2x-ish stretch and per-pixel Bayer dithering.
+    const int bw = data.kart_bilde.bredde;
+    const int bh = data.kart_bilde.hoyde;
+    const int mapX = tileX + 8, mapY = tileY + 8;
+    const int mapW = tileW - 16, mapH = tileH - 16;
+    for (int py = 0; py < mapH; ++py) {
+      const int sy = (py * bh) / mapH;
+      for (int pxx = 0; pxx < mapW; ++pxx) {
+        const int sx = (pxx * bw) / mapW;
+        const uint8_t shade = shades[sy * bw + sx];
+        if (kartShadePixel(shade, pxx, py)) {
+          epaper.drawPixel(mapX + pxx, mapY + py, INK);
+        }
+      }
+    }
+  } else if (data.kart.finnes) {
     // Skog (forest polygons): tree symbols at a few points inside each polygon.
     for (const auto& poly : data.kart.skog) {
       for (size_t i = 0; i < poly.size(); i += poly.size() / 3 + 1) {
@@ -922,6 +1018,7 @@ inline void renderKart(EPaper& epaper, SmoothFont& font,
     drawText(epaper, font, right, tileX + tileW - 10 - rw,
              config::PANEL_HEIGHT - MARGIN - 12, FontSize::Small);
   }
+  free(shades);
   font.unload();
 }
 

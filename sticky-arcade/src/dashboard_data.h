@@ -58,6 +58,14 @@ struct RouteEntry {
   std::vector<RoutePoint> rute;
 };
 
+struct KartBilde {
+  int bredde = 0;
+  int hoyde = 0;
+  float min_lat = 0, max_lat = 0, min_lng = 0, max_lng = 0;
+  String data;
+  bool finnes = false;
+};
+
 struct KartUnderlag {
   std::vector<std::vector<RoutePoint>> stier;
   std::vector<std::vector<RoutePoint>> vann;
@@ -77,6 +85,7 @@ struct DashboardData {
   std::vector<JournalEntry> journal;
   std::vector<RouteEntry> ruter;
   KartUnderlag kart;
+  KartBilde kart_bilde;
 };
 
 }  // namespace dashboard
