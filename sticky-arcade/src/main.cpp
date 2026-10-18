@@ -567,7 +567,9 @@ void saveResumeState() {
   }
   state.checksum = stateChecksum(state);
   persistedState = state;
-  epub_resume::savePosition(readerChapterIndex, readerPageStart);
+  if (readerBookPath.length() > 0) {
+    epub_resume::savePosition(readerChapterIndex, readerPageStart);
+  }
 }
 
 bool restoreResumeState() {
@@ -1526,10 +1528,8 @@ ReaderStorageStatus refreshReaderStorage() {
 
   sd_card_identity::Identity currentIdentity;
   if (!readReaderCardIdentity(currentIdentity)) {
-    clearReaderStorageState();
-    SD.end();
-    sdCardReady = false;
-    return ReaderStorageStatus::Missing;
+    LOG.println("[games] SD CID read failed; keeping reader state");
+    return ReaderStorageStatus::Ready;
   }
 
   const bool changed =
@@ -2496,7 +2496,7 @@ void fetchRunnersJournalData() {
   }
   
   LOG.printf("[runners-journal] Parsed data: uke=%s total_km=%.1f\n",
-             runners_journal::dashboardData.uke.merkelapp.c_str(),
+             runners_journal::dashboardData.uke.merkelapp,
              runners_journal::dashboardData.uke.total_km);
   
   runners_journal::dataFetched = true;
@@ -2864,7 +2864,10 @@ void handleEpubBrowserTouch(const Gt911Touch::Point& point) {
 
   hardware::beep();
   browserMessage = "";
-  if (openReaderBook(entry->path)) {
+  const String last = epub_resume::last();
+  const epub_resume::Position saved = epub_resume::position();
+  const bool sameBook = !last.isEmpty() && last == entry->path;
+  if (openReaderBook(entry->path, sameBook ? saved.chapter : 0, sameBook ? saved.pageStart : 0, true, /*showCover=*/!sameBook)) {
     showEpubReading();
   } else {
     browserMessage = tr(TextId::OpenFailed);

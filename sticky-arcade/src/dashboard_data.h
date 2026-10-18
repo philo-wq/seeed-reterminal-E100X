@@ -6,14 +6,29 @@
 
 namespace dashboard {
 
+// Helper for NUL-guaranteed string copy with truncation
+inline void copyStr(char* dst, size_t cap, const char* src) {
+  if (!dst || cap == 0) return;
+  if (!src) {
+    dst[0] = '\0';
+    return;
+  }
+  size_t i = 0;
+  while (i < cap - 1 && src[i] != '\0') {
+    dst[i] = src[i];
+    ++i;
+  }
+  dst[i] = '\0';
+}
+
 struct WeekSummary {
-  String merkelapp;
+  char merkelapp[24] = "";
   float total_km = 0.0f;
   int antall = 0;
   int maal_pct = 0;
-  String mot_forrige_km;
+  char mot_forrige_km[16] = "";
   uint32_t total_tid_s = 0;
-  String total_tid;
+  char total_tid[12] = "";
   int elevation_m = 0;
 };
 
@@ -22,29 +37,29 @@ struct YearSummary {
 };
 
 struct HistoryEntry {
-  String uke;
+  char uke[12] = "";
   float km = 0.0f;
   bool naa = false;
 };
 
 struct TypeEntry {
-  String type;
+  char type[24] = "";
   int antall = 0;
   float km = 0.0f;
 };
 
 struct RunEntry {
-  String dato;
-  String type;
+  char dato[16] = "";
+  char type[24] = "";
   float km = 0.0f;
-  String pace;
+  char pace[12] = "";
   int elevation_m = 0;
 };
 
 struct JournalEntry {
-  String dato;
-  String type;
-  String note;
+  char dato[16] = "";
+  char type[24] = "";
+  char note[256] = "";
 };
 
 struct RoutePoint {
@@ -53,8 +68,8 @@ struct RoutePoint {
 };
 
 struct RouteEntry {
-  String navn;
-  String type;
+  char navn[48] = "";
+  char type[24] = "";
   std::vector<RoutePoint> rute;
 };
 
@@ -62,7 +77,7 @@ struct KartBilde {
   int bredde = 0;
   int hoyde = 0;
   float min_lat = 0, max_lat = 0, min_lng = 0, max_lng = 0;
-  String data;
+  String data;  // Exception: stays String (up to 64KB RLE payload)
   bool finnes = false;
 };
 
@@ -74,9 +89,9 @@ struct KartUnderlag {
 };
 
 struct DashboardData {
-  String oppdatert;
+  char oppdatert[32] = "";
   uint32_t neste_oppvakning_s = 0;
-  String maal_km;
+  char maal_km[12] = "";
   WeekSummary uke;
   YearSummary aar;
   std::vector<HistoryEntry> historikk;

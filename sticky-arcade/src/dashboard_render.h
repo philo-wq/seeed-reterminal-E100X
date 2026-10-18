@@ -13,6 +13,7 @@
 #include <Arduino.h>
 #include <SD.h>
 #include <TFT_eSPI.h>
+#include <string.h>
 #include <utility>
 #include <vector>
 
@@ -70,11 +71,12 @@ inline void selectHeroFont(TFT_eSPI& epaper) {
 
 // "W31" -> "31": the W prefix makes nine 18px labels collide in ~50px
 // chart slots; the bare week number centers cleanly.
-inline String historyLabel(const String& uke) {
-  if (uke.length() > 1 && (uke[0] == 'W' || uke[0] == 'w')) {
-    return uke.substring(1);
+inline const char* historyLabel(const char* uke) {
+  if (uke && uke[0] != '\0' && strlen(uke) > 1 && 
+      (uke[0] == 'W' || uke[0] == 'w')) {
+    return uke + 1;
   }
-  return uke;
+  return uke ? uke : "";
 }
 
 
@@ -248,7 +250,7 @@ inline void drawTextColored(TFT_eSPI& epaper, SmoothFont& font,
 // stretch, etc.) that should render as "Alternativ økt" rather than
 // a km/pace/elevation detail row.
 inline bool isAlternativOkt(const dashboard::RunEntry& r) {
-  return r.km <= 0.0f && r.pace == "--:--";
+  return r.km <= 0.0f && strcmp(r.pace, "--:--") == 0;
 }
 
 inline int textHeight(TFT_eSPI& epaper, SmoothFont& font) {
@@ -456,7 +458,7 @@ inline void renderUke(EPaper& epaper, SmoothFont& font,
   drawRight(epaper, font, elevString(data.uke.elevation_m), y, FontSize::Small);
   y += textHeight(epaper, font) + LINE_GAP;
   drawText(epaper, font, "vs forrige", MARGIN, y, FontSize::Small);
-  drawRight(epaper, font, data.uke.mot_forrige_km + " km", y, FontSize::Small);
+  drawRight(epaper, font, String(data.uke.mot_forrige_km) + " km", y, FontSize::Small);
   y += textHeight(epaper, font) + LINE_GAP;
   drawHairline(epaper, y);
   y += LINE_GAP * 2;
@@ -539,7 +541,7 @@ inline void renderSiste(EPaper& epaper, SmoothFont& font,
     const dashboard::RunEntry& r = data.siste_lop[i];
 
     // Date + type on the left, truncated to the panel width.
-    const String left = r.dato + "  " + r.type;
+    const String left = String(r.dato) + "  " + String(r.type);
     drawText(epaper, font, fitText(epaper, font, left, maxW),
              MARGIN, y, FontSize::Small);
     y += lineH;
@@ -615,7 +617,7 @@ inline void renderJournal(EPaper& epaper, SmoothFont& font,
     }
     if (y + lineH > bottomLimit) break;
     // Date + type header, truncated so it never leaves the panel.
-    const String head = j.dato + "  " + j.type;
+    const String head = String(j.dato) + "  " + String(j.type);
     drawText(epaper, font, fitText(epaper, font, head, maxW),
              MARGIN, y, FontSize::Small);
     y += lineH;
@@ -988,7 +990,7 @@ inline void renderKart(EPaper& epaper, SmoothFont& font,
 
   // Route name labels at each route's midpoint.
   for (const dashboard::RouteEntry& r : data.ruter) {
-    if (r.navn.isEmpty() || r.rute.size() < 2) continue;
+    if (r.navn[0] == '\0' || r.rute.size() < 2) continue;
     const dashboard::RoutePoint& m = r.rute[r.rute.size() / 2];
     const int lx = offX + static_cast<int>((m.lng - minLng) * kLatScale * scale);
     const int ly = offY + static_cast<int>((maxLat - m.lat) * scale) - 14;
