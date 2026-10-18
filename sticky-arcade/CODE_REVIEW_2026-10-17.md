@@ -34,9 +34,9 @@ This review identified **1 critical security issue**, **4 high-priority refactor
 - **Risk**: Full device compromise if repository is accessed by unauthorized parties
 - **Evidence**:
   ```
-  #define WIFI_SSID "SILLY GOOSEWEB"
-  #define WIFI_PASSWORD "IamAsillyG00se"
-  #define SUPABASE_ANON_KEY "sb_publishable_2tLX7qsKEfEhrc9hhH35QQ_hrQuRxnn"
+  #define WIFI_SSID "<redacted — rotate credentials>"
+  #define WIFI_PASSWORD "<redacted — rotate credentials>"
+  #define SUPABASE_ANON_KEY "<redacted — rotate anon key>"
   ```
 
 **Recommended Fix**:
